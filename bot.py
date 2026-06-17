@@ -182,7 +182,10 @@ def handle_updates():
                     elif data=="bot_status": c=ensure_config_exists();send_telegram_message(f"✅ <b>БОТ РАБОТАЕТ</b>\n\n💰 Бюджет: ${c['freelancehunt']['min_budget']}\n🔍 Ключевые слова: {', '.join(c['freelancehunt']['keywords'])}",create_main_keyboard())
                     elif data=="bot_help": send_telegram_message("📚 <b>ДОСТУПНЫЕ ДЕЙСТВИЯ:</b>\n\n⚙️ Настройки\n📊 Статус бота\n❓ Help\n🔄 Перезапуск",create_main_keyboard())
                     elif data=="bot_restart": send_telegram_message("🔄 Перезапуск...",create_main_keyboard());os._exit(0)
-                    elif data=="close_settings": telegram_api("answerCallbackQuery",{"callback_query_id":cid,"text":"Меню закрыто"})
+                    elif data=="close_settings":
+                        chat_id=cb["message"]["chat"]["id"];message_id=cb["message"]["message_id"]
+                        telegram_api("deleteMessage",{"chat_id":chat_id,"message_id":message_id})
+                        telegram_api("answerCallbackQuery",{"callback_query_id":cid,"text":"Меню закрыто"})
         except Exception as e:
             print(f"Ошибка в handle_updates: {e}");time.sleep(5)
 
@@ -202,4 +205,3 @@ def main():
     while True: time.sleep(60)
 
 if __name__=="__main__": main()
-
