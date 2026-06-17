@@ -107,8 +107,8 @@ def check_freelancehunt_loop():
                     message = (
                         f"💼 <b>НОВЫЙ ПРОЕКТ • Freelancehunt</b>\n"
                         f"━━━━━━━━━━━━━━━━━━━━\n\n"
-                        f"📁 <b>Категория:</b> {safe_category}\n"
-                        f"📌 <b>Задание:</b> {safe_title}\n\n"
+                        f"📌 <b>Задание:</b> {safe_title}\n"
+                        f"ъ <b>Категория:</b> {safe_category}\n\n"
                         f"📝 <b>Описание:</b>\n"
                         f"<blockquote>{safe_description}</blockquote>"
                     )
@@ -126,13 +126,10 @@ def check_freelancehunt_loop():
 # --- УЛУЧШЕННЫЙ МОНИТОРИНГ КАБАНЧИКА ---
 def check_kabanchik_loop():
     print("Запущена обновленная служба Kabanchik.ua.")
-    
-    # Юзер-агент посвежее, чтобы сайт не думал, что мы старый бот
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7"
     }
-    
     while True:
         try:
             is_first_run = len(kabanchik_sent_tasks) == 0
@@ -147,18 +144,14 @@ def check_kabanchik_loop():
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, "html.parser")
                     
-                    # Ищем карточки всеми возможными способами (новые классы + старые + общие теги списков)
                     tasks = soup.find_all("div", class_=["task-card", "b-task-item"])
                     if not tasks:
                         tasks = soup.find_all("li", class_=["b-task-item", "task-card"])
                     if not tasks:
-                        # Резервный вариант: ищем блоки, у которых внутри есть ссылки на новые задачи
                         tasks = [a.find_parent("div") for a in soup.find_all("a", href=True) if "/tasks/" in a['href'] or "/work/" in a['href']]
-                        # Очищаем от пустых элементов (None) и дубликатов
                         tasks = list(filter(None, set(tasks)))
 
                     for task in reversed(tasks):
-                        # Ищем ссылку на задачу
                         link_tag = task.find("a", href=True) if hasattr(task, 'find') else None
                         if not link_tag and hasattr(task, 'name') and task.name == 'a':
                             link_tag = task
@@ -167,8 +160,6 @@ def check_kabanchik_loop():
                             continue
                             
                         href = link_tag['href'].strip()
-                        
-                        # Проверяем, что это ссылка именно на страницу конкретного заказа
                         if not ("/tasks/" in href or "/work/" in href or "kabanchik.ua" in href):
                             continue
                         
@@ -179,7 +170,6 @@ def check_kabanchik_loop():
                                 href = "/" + href
                             task_link = "https://kabanchik.ua" + href
                         
-                        # Вытягиваем ID заказа из ссылки
                         try:
                             task_id = task_link.split("-")[-1].replace("/", "").split("?")[0]
                         except:
@@ -187,17 +177,14 @@ def check_kabanchik_loop():
                         
                         if task_id not in kabanchik_sent_tasks:
                             kabanchik_sent_tasks.add(task_id)
-                            
                             if is_first_run: 
                                 continue
                             
-                            # Ищем заголовок заказа
                             title_tag = task.find(["a", "span", "p", "div"], class_=["task-card__title", "b-task-item__title", "task-title"])
                             title = title_tag.get_text(strip=True) if title_tag else link_tag.get_text(strip=True)
                             if not title or len(title) < 5:
                                 title = "Новый заказ на Кабанчике"
                             
-                            # Ищем цену заказа
                             price_tag = task.find("span", class_=["task-card__price", "b-task-item__price", "task-price"])
                             price = price_tag.get_text(strip=True) if price_tag else "Бюджет не указан"
                             
@@ -208,33 +195,6 @@ def check_kabanchik_loop():
                             message = (
                                 f"🐗 <b>НОВЫЙ ЗАКАЗ • Kabanchik</b>\n"
                                 f"━━━━━━━━━━━━━━━━━━━━\n\n"
-                                f"📁 <b>Категория:</b> {safe_category}\n"
-                                f"📌 <b>Что сделать:</b> {safe_title}\n\n"
-                                f"💰 <b>Бюджет:</b> <code>{safe_price}</code>"
-                            )
-                            
-                            send_telegram_message_with_two_buttons(
-                                text=message, b1_text="🔎 Открыть", b1_url=task_link, b2_text="🤝 Откликнуться", b2_url=task_link
-                            )
-                else:
-                    print(f"Кабанчик ответил кодом {response.status_code}")
-                
-                time.sleep(3) # Небольшая пауза, чтобы сайт нас не банил
-                
-        except Exception as e:
-            print(f"Ошибка в модуле Кабанчика: {e}")
-            
-        time.sleep(KABANCHIK_INTERVAL)
-
-# --- ГЛАВНЫЙ ЗАПУСК ---
-if __name__ == "__main__":
-    Thread(target=run_web_server, daemon=True).start()
-    print("Системный веб-сервер запущен.")
-    
-    Thread(target=check_freelancehunt_loop, daemon=True).start()
-    Thread(target=check_kabanchik_loop, daemon=True).start()
-    
-    print("Все службы мониторинга успешно запущены в облаке!")
-    
-    while True:
-        time.sleep(3600)
+                                f"📌 <b>Что сделать:</b> {safe_title}\n"
+                                f"ъ <b>Категория:</b> {safe_category}\n\n"
+                                f"💰 <b>Бюджет
