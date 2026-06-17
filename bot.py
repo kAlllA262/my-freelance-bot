@@ -37,9 +37,26 @@ def run_web_server():
 fh_sent_projects = set()
 kabanchik_sent_tasks = set()
 
-def send_telegram_message(text):
+# ОБНОВЛЕННАЯ ФУНКЦИЯ: Теперь отправляет сообщение с красивой кнопкой-ссылкой
+def send_telegram_message_with_button(text, button_text, button_url):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
+    
+    # Формируем структуру встроенной клавиатуры (inline keyboard)
+    reply_markup = {
+        "inline_keyboard": [
+            [
+                {"text": button_text, "url": button_url}
+            ]
+        ]
+    }
+    
+    payload = {
+        "chat_id": CHAT_ID, 
+        "text": text, 
+        "parse_mode": "HTML",
+        "reply_markup": reply_markup  # Добавляем кнопку к сообщению
+    }
+    
     try:
         requests.post(url, json=payload)
     except Exception as e:
@@ -69,18 +86,22 @@ def check_freelancehunt_loop():
                     message = (
                         f"🚨 <b>Новый заказ! [Freelancehunt]</b>\n\n"
                         f"📌 <b>{entry.title}</b>\n"
-                        f"📝 {description}\n\n"
-                        f"🔗 <a href='{entry.link}'>Открыть проект</a>"
+                        f"📝 {description}"
                     )
-                    send_telegram_message(message)
+                    # Вызываем новую функцию с кнопкой
+                    send_telegram_message_with_button(
+                        text=message, 
+                        button_text="🔗 Открыть проект", 
+                        button_url=entry.link
+                    )
         except Exception as e:
             print(f"Ошибка во Freelancehunt: {e}")
             
         time.sleep(FH_INTERVAL)
 
-# --- МОНИТОРИНГ КАБАНЧИКА (МНОГОКАТЕГОРИЙНЫЙ) ---
+# --- МОНИТОРИНГ КАБАНЧИКА ---
 def check_kabanchik_loop():
-    print("Запущена служба Kabanchik.ua (Мультикатегории).")
+    print("Запущена служба Kabanchik.ua.")
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
@@ -88,7 +109,6 @@ def check_kabanchik_loop():
         try:
             is_first_run = len(kabanchik_sent_tasks) == 0
             
-            # Бот по очереди заходит на каждую ссылку из твоего списка
             for url in KABANCHIK_URLS:
                 print(f"Проверяю категорию Кабанчика: {url.split('/')[-1]}")
                 response = requests.get(url, headers=headers)
@@ -112,7 +132,6 @@ def check_kabanchik_loop():
                         if task_id not in kabanchik_sent_tasks:
                             kabanchik_sent_tasks.add(task_id)
                             
-                            # Пропускаем старые заказы при самом первом запуске бота
                             if is_first_run: 
                                 continue
                             
@@ -125,20 +144,22 @@ def check_kabanchik_loop():
                             message = (
                                 f"🐗 <b>Новый заказ! [Кабанчик]</b>\n\n"
                                 f"📌 <b>Что сделать:</b> {title}\n"
-                                f"💰 <b>Бюджет:</b> {price}\n\n"
-                                f"🔗 <a href='{task_link}'>Открыть заказ</a>"
+                                f"💰 <b>Бюджет:</b> {price}"
                             )
-                            send_telegram_message(message)
+                            # Вызываем новую функцию с кнопкой
+                            send_telegram_message_with_button(
+                                text=message, 
+                                button_text="🔗 Открыть заказ", 
+                                button_url=task_link
+                            )
                 else:
                     print(f"Кабанчик ответил ошибкой {response.status_code} для ссылки: {url}")
                 
-                # Крошечная пауза в 2 секунды между категориями, чтобы Кабанчик не заподозрил спам
                 time.sleep(2)
                 
         except Exception as e:
             print(f"Ошибка в модуле Кабанчика: {e}")
             
-        # Пауза перед тем, как начать новый круг проверки всех категорий
         time.sleep(KABANCHIK_INTERVAL)
 
 # --- ГЛАВНЫЙ ЗАПУСК ---
