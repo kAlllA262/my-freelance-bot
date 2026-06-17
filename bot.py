@@ -10,7 +10,7 @@ BOT_TOKEN = "8917936924:AAGdutlt5pgvAsTaZxTvoVboSul6NUUGADQ"
 CHAT_ID = "419172431"
 
 # Настройки для Freelancehunt
-FH_RSS_URL = "https://freelancehunt.com/ua/projects.rss"
+FH_RSS_URL = "freelancehunt.com/projects.rss?skills%5B%5D=186&skills%5B%5D=191&skills%5B%5D=192&skills%5B%5D=91&skills%5B%5D=113&skills%5B%5D=144&skills%5B%5D=100&skills%5B%5D=102&skills%5B%5D=101&skills%5B%5D=18&skills%5B%5D=143"
 FH_INTERVAL = 60  # Проверка раз в минуту
 
 # Настройки для Кабанчика (СПИСОК КАТЕГОРИЙ)
