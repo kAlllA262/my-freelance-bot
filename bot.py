@@ -124,9 +124,27 @@ def handle_updates():
         except: time.sleep(5)
 
 def main():
+    if not BOT_TOKEN or not CHAT_ID:
+        print("Ошибка: BOT_TOKEN или CHAT_ID не заданы!")
+        return
+
+    ensure_config_exists()
     setup_bot_menu()
-    Thread(target=run_web_server, daemon=True).start()
-    Thread(target=handle_updates, daemon=True).start()
-    while True: time.sleep(60)
+    print("Инициализация потоков...")
+    
+    # Запускаем фоновые задачи
+    try:
+        Thread(target=run_web_server, daemon=True).start()
+        Thread(target=monitor_freelancehunt, daemon=True).start()
+        Thread(target=monitor_kabanchik, daemon=True).start()
+        Thread(target=handle_updates, daemon=True).start()
+        print("Бот успешно запущен")
+    except Exception as e:
+        print(f"Ошибка при старте потоков: {e}")
+
+    # Главный цикл
+    while True:
+        time.sleep(60)
+
 
 if __name__ == "__main__": main()
