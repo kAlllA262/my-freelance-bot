@@ -291,27 +291,31 @@ def detect_fh_category(text):
     return "Без категории"
 
 
-def format_freelancehunt_message(title, summary, category):
+def format_freelancehunt_message(title, summary, category, budget=None):
+    budget_text = f"{budget}" if budget else "Не указана"
     return (
-        f"🟢 <b>БИРЖА</b>\n"
-        f"Freelancehunt\n\n"
+        f"🟢 <b>Freelancehunt</b>\n\n"
         f"📌 <b>НАЗВАНИЕ ЗАКАЗА</b>\n"
         f"{clean_html_text(title)}\n\n"
         f"🏷 <b>КАТЕГОРИЯ</b>\n"
         f"{clean_html_text(category)}\n\n"
+        f"💰 <b>СТОИМОСТЬ</b>\n"
+        f"{clean_html_text(budget_text)}\n\n"
         f"📝 <b>ОПИСАНИЕ</b>\n"
         f"{clean_html_text(summary[:900])}"
     )
 
 
-def format_kabanchik_message(title, category, description="Описание на сайте Kabanchik"):
+def format_kabanchik_message(title, category, description="Описание на сайте Kabanchik", budget=None):
+    budget_text = f"{budget}" if budget else "Не указана"
     return (
-        f"🟠 <b>БИРЖА</b>\n"
-        f"Kabanchik\n\n"
+        f"🟠 <b>Kabanchik</b>\n\n"
         f"📌 <b>НАЗВАНИЕ ЗАКАЗА</b>\n"
         f"{clean_html_text(title)}\n\n"
         f"🏷 <b>КАТЕГОРИЯ</b>\n"
         f"{clean_html_text(category)}\n\n"
+        f"💰 <b>СТОИМОСТЬ</b>\n"
+        f"{clean_html_text(budget_text)}\n\n"
         f"📝 <b>ОПИСАНИЕ</b>\n"
         f"{clean_html_text(description)}"
     )
@@ -346,7 +350,7 @@ def parse_freelancehunt():
 
             fh_sent_projects.add(project_id)
 
-            msg = format_freelancehunt_message(title, summary, category)
+            msg = format_freelancehunt_message(title, summary, category, budget if budget else None)
             send_telegram_message_with_button(msg, "🔗 Открыть проект", link)
 
     except Exception as e:
@@ -402,7 +406,7 @@ def parse_kabanchik():
 
                 kabanchik_sent_tasks.add(task_id)
 
-                msg = format_kabanchik_message(title, category)
+                msg = format_kabanchik_message(title, category, "Описание на сайте Kabanchik", None)
                 send_telegram_message_with_button(msg, "🔗 Открыть задачу", full_link)
 
     except Exception as e:
