@@ -81,7 +81,7 @@ def send_telegram_message_with_two_buttons(text, b1_text, b1_url, b2_text, b2_ur
 
 # --- МОНИТОРИНГ FREELANCEHUNT ---
 def check_freelancehunt_loop():
-    print("Запущена служба Freelancehunt.")
+    print("Запущена служба Freelancehunt с умным разделением категорий.")
     while True:
         try:
             feed = feedparser.parse(FH_RSS_URL)
@@ -94,16 +94,27 @@ def check_freelancehunt_loop():
                     if is_first_run: 
                         continue
                     
-                    category_name = entry.get('category', 'Не указана')
+                    # Разделяем заголовок Freelancehunt, если он идет в формате "Категория : Задание"
+                    raw_title = entry.title
+                    if " : " in raw_title:
+                        category_name, project_title = raw_title.split(" : ", 1)
+                    elif ":" in raw_title:
+                        category_name, project_title = raw_title.split(":", 1)
+                    else:
+                        category_name = entry.get('category', 'Freelancehunt')
+                        project_title = raw_title
+
                     soup = BeautifulSoup(entry.summary, "html.parser")
                     description = soup.get_text(separator="\n")
                     if len(description) > 400: 
                         description = description[:400] + "..."
 
-                    safe_title = clean_html_text(entry.title)
+                    # Очищаем текст от опасных HTML-символов
+                    safe_title = clean_html_text(project_title.strip())
                     safe_description = clean_html_text(description)
-                    safe_category = clean_html_text(category_name)
+                    safe_category = clean_html_text(category_name.strip())
 
+                    # Шаблон с разделением категорий под Задание
                     message = (
                         f"💼 <b>НОВЫЙ ПРОЕКТ • Freelancehunt</b>\n"
                         f"━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -197,4 +208,28 @@ def check_kabanchik_loop():
                                 f"━━━━━━━━━━━━━━━━━━━━\n\n"
                                 f"📌 <b>Что сделать:</b> {safe_title}\n"
                                 f"ъ <b>Категория:</b> {safe_category}\n\n"
-                                f"💰 <b>Бюджет
+                                f"💰 <b>Бюджет:</b> <code>{safe_price}</code>"
+                            )
+                            
+                            send_telegram_message_with_two_buttons(
+                                text=message, b1_text="🔎 Открыть", b1_url=task_link, b2_text="🤝 Откликнуться", b2_url=task_link
+                            )
+                else:
+                    print(f"Кабанчик ответил кодом {response.status_code}")
+                time.sleep(3)
+        except Exception as e:
+            print(f"Ошибка в модуле Кабанчика: {e}")
+        time.sleep(KABANCHIK_INTERVAL)
+
+# --- ГЛАВНЫЙ ЗАПУСК ---
+if __name__ == "__main__":
+    Thread(target=run_web_server, daemon=True).start()
+    print("Системный веб-сервер запущен.")
+    
+    Thread(target=check_freelancehunt_loop, daemon=True).start()
+    Thread(target=check_kabanchik_loop, daemon=True).start()
+    
+    print("Все службы мониторинга успешно запущены в облаке!")
+    
+    while True:
+        time.sleep(3600)
