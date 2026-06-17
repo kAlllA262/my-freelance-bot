@@ -3,6 +3,7 @@ import requests
 import feedparser
 import json
 import os
+import re
 from bs4 import BeautifulSoup
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -127,20 +128,16 @@ def create_settings_keyboard(config):
     keyboard = {"inline_keyboard": []}
 
     keyboard["inline_keyboard"].append([
-        {"text": "⚙️ Главное меню", "callback_data": "open_settings"}
-    ])
-
-    keyboard["inline_keyboard"].append([
         {"text": "💰 Бюджет", "callback_data": "open_budget"},
         {"text": "🔍 Ключевые слова", "callback_data": "open_keywords"}
     ])
 
     keyboard["inline_keyboard"].append([
-        {"text": "📁 Категории Freelancehunt", "callback_data": "show_fh_categories"}
+        {"text": "📁 Freelancehunt", "callback_data": "show_fh_categories"}
     ])
 
     keyboard["inline_keyboard"].append([
-        {"text": "📁 Категории Kabanchik", "callback_data": "show_kb_categories"}
+        {"text": "📁 Kabanchik", "callback_data": "show_kb_categories"}
     ])
 
     keyboard["inline_keyboard"].append([
@@ -199,6 +196,10 @@ def clean_html_text(text):
 
 
 def send_telegram_message(text, reply_markup=None):
+    if not BOT_TOKEN or not CHAT_ID:
+        print("BOT_TOKEN или CHAT_ID не заданы")
+        return None
+
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
     payload = {
@@ -211,7 +212,9 @@ def send_telegram_message(text, reply_markup=None):
         payload["reply_markup"] = reply_markup
 
     try:
-        response = requests.post(url, json=payload)
+        response = requests.post(url, json=payload, timeout=20)
+        if response.status_code != 200:
+            print(f"Ошибка Telegram API: {response.text}")
         return response.json() if response.status_code == 200 else None
     except Exception as e:
         print(f"Ошибка отправки: {e}")
@@ -219,6 +222,10 @@ def send_telegram_message(text, reply_markup=None):
 
 
 def send_telegram_message_with_two_buttons(text, b1_text, b1_url, b2_text, b2_url):
+    if not BOT_TOKEN or not CHAT_ID:
+        print("BOT_TOKEN или CHAT_ID не заданы")
+        return
+
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     b1_url = b1_url.strip()
     b2_url = b2_url.strip()
@@ -238,11 +245,120 @@ def send_telegram_message_with_two_buttons(text, b1_text, b1_url, b2_text, b2_ur
     }
 
     try:
-        response = requests.post(url, json=payload)
+        response = requests.post(url, json=payload, timeout=20)
         if response.status_code != 200:
             print(f"Ошибка Telegram API: {response.text}")
     except Exception as e:
         print(f"Ошибка отправки в Telegram: {e}")
+
+
+def extract_budget(text):
+    if not text:
+        return 0
+    match = re.search(r'(\d[\d\s]*)', text.replace(",", ""))
+    if match:
+        try:
+            return int(match.group(1).replace(" ", ""))
+        except:
+            return 0
+    return 0
+
+
+def matches_keywords(text, keywords):
+    if not text:
+        return False
+    low = text.lower()
+    for kw in keywords:
+        if kw.lower() in low:
+            return True
+    return False
+
+
+def parse_freelancehunt():
+    config = ensure_config_exists()
+    enabled_keywords = config["freelancehunt"]["keywords"]
+    min_budget = config["freelancehunt"]["min_budget"]
+
+    try:
+        feed = feedparser.parse(FH_RSS_URL)
+        for entry in feed.entries:
+            title = getattr(entry, "title", "")
+            link = getattr(entry, "link", "")
+            summary = getattr(entry, "summary", "")
+            project_id = link or title
+
+            if project_id in fh_sent_projects:
+                continue
+
+            text_for_filter = f"{title} {summary}"
+            budget = extract_budget(text_for_filter)
+
+            if min_budget and budget < min_budget:
+                continue
+
+            if enabled_keywords and not matches_keywords(text_for_filter, enabled_keywords):
+                continue
+
+            fh_sent_projects.add(project_id)
+
+            msg = (
+                f"🟢 <b>Freelancehunt</b>\n"
+                f"📌 <b>{clean_html_text(title)}</b>\n\n"
+                f"{clean_html_text(summary[:700])}\n\n"
+                f"🔗 <a href=\"{link}\">Открыть проект</a>"
+            )
+            send_telegram_message(msg)
+
+    except Exception as e:
+        print(f"Ошибка парсинга Freelancehunt: {e}")
+
+
+def parse_kabanchik():
+    config = ensure_config_exists()
+
+    try:
+        for url in KABANCHIK_URLS:
+            response = requests.get(url, timeout=20, headers={
+                "User-Agent": "Mozilla/5.0"
+            })
+            if response.status_code != 200:
+                continue
+
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            links = soup.find_all("a", href=True)
+            for a in links:
+                href = a["href"]
+                title = a.get_text(" ", strip=True)
+
+                if not title or len(title) < 5:
+                    continue
+
+                if "project" not in href and "task" not in href:
+                    continue
+
+                full_link = href if href.startswith("http") else f"https://kabanchik.ua{href}"
+                task_id = full_link
+
+                if task_id in kabanchik_sent_tasks:
+                    continue
+
+                text_for_filter = title.lower()
+                if config["freelancehunt"]["keywords"]:
+                    if not matches_keywords(text_for_filter, config["freelancehunt"]["keywords"]):
+                        continue
+
+                kabanchik_sent_tasks.add(task_id)
+
+                msg = (
+                    f"🟠 <b>Kabanchik</b>\n"
+                    f"📌 <b>{clean_html_text(title)}</b>\n\n"
+                    f"🔗 <a href=\"{full_link}\">Открыть задачу</a>"
+                )
+                send_telegram_message(msg)
+
+    except Exception as e:
+        print(f"Ошибка парсинга Kabanchik: {e}")
 
 
 def handle_updates():
@@ -252,7 +368,7 @@ def handle_updates():
     while True:
         try:
             url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={offset}&timeout=30"
-            response = requests.get(url)
+            response = requests.get(url, timeout=40)
             updates = response.json().get("result", [])
 
             for update in updates:
@@ -272,16 +388,15 @@ def handle_updates():
                         help_text = """
 📚 <b>ДОСТУПНЫЕ КОМАНДЫ:</b>
 
-/settings - Открыть настройки категорий
+/settings - Открыть настройки
 /help - Эта справка
 /status - Статус бота
 
-<b>В меню настроек:</b>
-- Нажимай на категорию чтобы включить/выключить
-- 💰 Бюджет - выбрать минимальный бюджет
-- 🔍 Ключевые слова - включать/выключать слова
-- 🔄 Сброс - вернуть дефолтные настройки
-- ❌ Закрыть - закрыть меню
+<b>В меню:</b>
+- Бюджет
+- Ключевые слова
+- Категории
+- Сброс
 """
                         send_telegram_message(help_text)
 
@@ -386,17 +501,39 @@ def handle_updates():
             time.sleep(5)
 
 
+def monitor_freelancehunt():
+    while True:
+        parse_freelancehunt()
+        time.sleep(FH_INTERVAL)
+
+
+def monitor_kabanchik():
+    while True:
+        parse_kabanchik()
+        time.sleep(KABANCHIK_INTERVAL)
+
+
 def main():
     if not BOT_TOKEN or not CHAT_ID:
         print("BOT_TOKEN или CHAT_ID не заданы в переменных окружения")
         return
 
-    config = ensure_config_exists()
+    ensure_config_exists()
     print("Бот запущен")
+
     web_thread = Thread(target=run_web_server, daemon=True)
     web_thread.start()
 
-    handle_updates()
+    fh_thread = Thread(target=monitor_freelancehunt, daemon=True)
+    kb_thread = Thread(target=monitor_kabanchik, daemon=True)
+    updates_thread = Thread(target=handle_updates, daemon=True)
+
+    fh_thread.start()
+    kb_thread.start()
+    updates_thread.start()
+
+    while True:
+        time.sleep(60)
 
 
 if __name__ == "__main__":
