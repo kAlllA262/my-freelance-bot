@@ -7,6 +7,7 @@ import re
 from bs4 import BeautifulSoup
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from deep_translator import GoogleTranslator
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
@@ -247,16 +248,58 @@ def get_settings_text(config):
     return text
 
 
-def extract_budget(text):
+def extract_budget_and_currency(text):
     if not text:
-        return 0
-    match = re.search(r'(\d[\d\s]*)', text.replace(",", ""))
-    if match:
+        return None, ""
+    patterns = [
+        r'(\d[\d\s]*)\s*(₴|грн|uah|usd|\$|€|eur)',
+        r'(₴|грн|uah|usd|\$|€|eur)\s*(\d[\d\s]*)'
+    ]
+    low = text.lower()
+    for p in patterns:
+        m = re.search(p, low, re.IGNORECASE)
+        if m:
+            if m.group(1).replace(" ", "").isdigit():
+                amount = int(m.group(1).replace(" ", ""))
+                currency = m.group(2)
+            else:
+                amount = int(m.group(2).replace(" ", ""))
+                currency = m.group(1)
+            return amount, currency.upper()
+    m = re.search(r'(\d[\d\s]*)', text)
+    if m:
         try:
-            return int(match.group(1).replace(" ", ""))
+            return int(m.group(1).replace(" ", "")), ""
         except:
-            return 0
-    return 0
+            return None, ""
+    return None, ""
+
+
+def translate_to_russian(text):
+    if not text:
+        return text
+    try:
+        return GoogleTranslator(source="auto", target="ru").translate(text)
+    except Exception as e:
+        print(f"DEBUG: translate error: {e}")
+        return text
+
+
+def is_russian_or_ukrainian(text):
+    if not text:
+        return True
+    low = text.lower()
+    ru_ua_chars = "абвгдеёжзиіїєґклмнопрстуфхцчшщьыэюя"
+    return any(ch in low for ch in ru_ua_chars)
+
+
+def maybe_translate(text):
+    if not text:
+        return text, False
+    if is_russian_or_ukrainian(text):
+        return text, False
+    translated = translate_to_russian(text)
+    return translated, True
 
 
 def matches_keywords(text, keywords):
@@ -284,25 +327,53 @@ def detect_fh_category(text):
     return "Без категории"
 
 
-def format_freelancehunt_message(title, summary, category, budget=None):
-    budget_text = f"{budget}" if budget else "Не указана"
+def format_freelancehunt_message(title, summary, category, budget=None, currency=""):
+    budget_text = "Не указана"
+    if budget is not None:
+        budget_text = f"{budget} {currency}".strip()
+
+    title, title_translated = maybe_translate(title)
+    summary, summary_translated = maybe_translate(summary)
+
+    title_line = clean_html_text(title)
+    if title_translated:
+        title_line += " <i>(переведен)</i>"
+
+    summary_line = clean_html_text(summary[:900])
+    if summary_translated:
+        summary_line += "\n\n<i>(переведен)</i>"
+
     return (
         f"🟡 <b>Freelancehunt</b>\n\n"
-        f"{clean_html_text(title)}\n\n"
+        f"{title_line}\n\n"
         f"🏷 Категория\n{clean_html_text(category)}\n\n"
         f"💰 {clean_html_text(budget_text)}\n\n"
-        f"📝 Описание\n{clean_html_text(summary[:900])}"
+        f"📝 Описание\n{summary_line}"
     )
 
 
-def format_kabanchik_message(title, category, description="Описание на сайте Kabanchik", budget=None):
-    budget_text = f"{budget}" if budget else "Не указана"
+def format_kabanchik_message(title, category, description="Описание на сайте Kabanchik", budget=None, currency=""):
+    budget_text = "Не указана"
+    if budget is not None:
+        budget_text = f"{budget} {currency}".strip()
+
+    title, title_translated = maybe_translate(title)
+    description, description_translated = maybe_translate(description)
+
+    title_line = clean_html_text(title)
+    if title_translated:
+        title_line += " <i>(переведен)</i>"
+
+    description_line = clean_html_text(description)
+    if description_translated:
+        description_line += "\n\n<i>(переведен)</i>"
+
     return (
         f"🟢 <b>Kabanchik</b>\n\n"
-        f"{clean_html_text(title)}\n\n"
+        f"{title_line}\n\n"
         f"🏷 Категория\n{clean_html_text(category)}\n\n"
         f"💰 {clean_html_text(budget_text)}\n\n"
-        f"📝 Описание\n{clean_html_text(description)}"
+        f"📝 Описание\n{description_line}"
     )
 
 
@@ -331,9 +402,9 @@ def parse_freelancehunt():
                 continue
 
             text_for_filter = f"{title} {summary}"
-            budget = extract_budget(text_for_filter)
+            budget, currency = extract_budget_and_currency(text_for_filter)
 
-            if min_budget and budget < min_budget:
+            if min_budget and budget is not None and budget < min_budget:
                 continue
 
             if enabled_keywords and not matches_keywords(text_for_filter, enabled_keywords):
@@ -343,7 +414,7 @@ def parse_freelancehunt():
             fh_sent_projects.add(project_id)
 
             send_telegram_message_with_button(
-                format_freelancehunt_message(title, summary, category, budget if budget else None),
+                format_freelancehunt_message(title, summary, category, budget, currency),
                 "🔗 Открыть проект",
                 link
             )
@@ -393,7 +464,7 @@ def parse_kabanchik():
                 kabanchik_sent_tasks.add(full_link)
 
                 send_telegram_message_with_button(
-                    format_kabanchik_message(title, category, "Описание на сайте Kabanchik", None),
+                    format_kabanchik_message(title, category, "Описание на сайте Kabanchik", None, ""),
                     "🔗 Открыть задачу",
                     full_link
                 )
