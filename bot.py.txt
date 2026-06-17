@@ -1,0 +1,65 @@
+import time
+import requests
+import feedparser
+from bs4 import BeautifulSoup
+from threading import Thread
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+# ================= НАСТРОЙКИ =================
+BOT_TOKEN = "8917936924:AAGdutlt5pgvAsTaZxTvoVboSul6NUUGADQ"
+CHAT_ID = "419172431"
+RSS_URL = "https://freelancehunt.com/blog/rss/"
+CHECK_INTERVAL = 60 
+# =============================================
+
+# Крошечный веб-сервер для Render
+class HealthCheckServer(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+        self.wfile.write(b"Bot is running")
+
+def run_web_server():
+    server = HTTPServer(('0.0.0.0', 10000), HealthCheckServer)
+    server.serve_forever()
+
+sent_projects = set()
+
+def send_telegram_message(text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
+    try: requests.post(url, json=payload)
+    except: print("Ошибка Telegram")
+
+def check_freelancehunt():
+    print("Проверяю новые заказы...")
+    feed = feedparser.parse(RSS_URL)
+    is_first_run = len(sent_projects) == 0
+
+    for entry in reversed(feed.entries):
+        project_id = entry.get('id', entry.link)
+        if project_id not in sent_projects:
+            sent_projects.add(project_id)
+            if is_first_run: continue
+            
+            soup = BeautifulSoup(entry.summary, "html.parser")
+            description = soup.get_text(separator="\n")
+            if len(description) > 500: description = description[:500] + "..."
+
+            message = (
+                f"🚨 <b>Новый заказ!</b>\n\n"
+                f"📌 <b>{entry.title}</b>\n"
+                f"📝 {description}\n\n"
+                f"🔗 <a href='{entry.link}'>Открыть проект</a>"
+            )
+            send_telegram_message(message)
+
+if __name__ == "__main__":
+    # Запускаем веб-сервер в отдельном потоке для Render
+    Thread(target=run_web_server, daemon=True).start()
+    
+    print("Бот успешно запущен в облаке!")
+    while True:
+        check_freelancehunt()
+        time.sleep(CHECK_INTERVAL)
