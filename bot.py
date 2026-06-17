@@ -296,11 +296,10 @@ def format_freelancehunt_message(title, summary, category, budget=None):
     return (
         f"🟡 <b>Freelancehunt</b>\n\n"
         f"{clean_html_text(title)}\n\n"
-        f"🏷 <b>КАТЕГОРИЯ</b>\n"
+        f"🏷 Категория\n"
         f"{clean_html_text(category)}\n\n"
-        f"💰 <b>СТОИМОСТЬ</b>\n"
-        f"{clean_html_text(budget_text)}\n\n"
-        f"📝 <b>ОПИСАНИЕ</b>\n"
+        f"💰 {clean_html_text(budget_text)}\n\n"
+        f"📝 Описание\n"
         f"{clean_html_text(summary[:900])}"
     )
 
@@ -310,11 +309,10 @@ def format_kabanchik_message(title, category, description="Описание на
     return (
         f"🟢 <b>Kabanchik</b>\n\n"
         f"{clean_html_text(title)}\n\n"
-        f"🏷 <b>КАТЕГОРИЯ</b>\n"
+        f"🏷 Категория\n"
         f"{clean_html_text(category)}\n\n"
-        f"💰 <b>СТОИМОСТЬ</b>\n"
-        f"{clean_html_text(budget_text)}\n\n"
-        f"📝 <b>ОПИСАНИЕ</b>\n"
+        f"💰 {clean_html_text(budget_text)}\n\n"
+        f"📝 Описание\n"
         f"{clean_html_text(description)}"
     )
 
