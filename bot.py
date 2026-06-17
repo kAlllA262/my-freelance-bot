@@ -1,6 +1,8 @@
 import time
 import requests
 import feedparser
+import json
+import os
 from bs4 import BeautifulSoup
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -15,16 +17,6 @@ CHAT_ID = "419172431"
 FH_RSS_URL = "https://freelancehunt.com/projects.rss?skills%5B%5D=113&skills%5B%5D=192&skills%5B%5D=144&skills%5B%5D=101&skills%5B%5D=18&skills%5B%5D=91"
 FH_INTERVAL = 60  # Проверка раз в минуту
 
-# ФИЛЬТР: Разрешённые категории Freelancehunt (чтобы не приходили ненужные)
-ALLOWED_FH_CATEGORIES = [
-    "Аудио видео монтаж",
-    "AI создание видео",
-    "Видео реклама",
-    "Обработка видео",
-    "Обработка фото",
-    "Анимация"
-]
-
 # Настройки для Кабанчика (публичные ссылки)
 KABANCHIK_URLS = [
     "https://kabanchik.ua/projects/category/ai-poslugi",
@@ -32,6 +24,8 @@ KABANCHIK_URLS = [
     "https://kabanchik.ua/projects/category/roboty-v-interneti",
 ]
 KABANCHIK_INTERVAL = 30  # Пауза между полными кругами проверок всех категорий
+
+CONFIG_FILE = "config.json"
 # ====================================================
 
 class HealthCheckServer(BaseHTTPRequestHandler):
@@ -56,10 +50,110 @@ def run_web_server():
 fh_sent_projects = set()
 kabanchik_sent_tasks = set()
 
+def load_config():
+    """Загружает конфиг из JSON файла"""
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"Ошибка загрузки конфига: {e}")
+    return None
+
+def save_config(config):
+    """Сохраняет конфиг в JSON файл"""
+    try:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        print(f"Ошибка сохранения конфига: {e}")
+        return False
+
+def get_settings_text(config):
+    """Генерирует текст с текущими настройками"""
+    text = "⚙️ <b>НАСТРОЙКИ БОТА</b>\n\n"
+    
+    # Freelancehunt категории
+    text += "📁 <b>FREELANCEHUNT КАТЕГОРИИ:</b>\n"
+    for cat, enabled in config['freelancehunt']['categories'].items():
+        status = "☑️" if enabled else "☐"
+        text += f"{status} {cat}\n"
+    
+    text += f"\n💰 <b>МИНИМАЛЬНЫЙ БЮДЖЕТ:</b> ${config['freelancehunt']['min_budget']}\n"
+    
+    text += f"\n🔍 <b>КЛЮЧЕВЫЕ СЛОВА:</b>\n"
+    keywords = ", ".join(config['freelancehunt']['keywords'])
+    text += f"<code>{keywords}</code>\n"
+    
+    # Kabanchik категории
+    text += "\n📁 <b>KABANCHIK КАТЕГОРИИ:</b>\n"
+    for cat, enabled in config['kabanchik']['categories'].items():
+        status = "☑️" if enabled else "☐"
+        text += f"{status} {cat}\n"
+    
+    return text
+
+def create_settings_keyboard(config):
+    """Создаёт клавиатуру с кнопками категорий"""
+    keyboard = {
+        "inline_keyboard": []
+    }
+    
+    # Freelancehunt категории
+    for cat in config['freelancehunt']['categories'].keys():
+        status = "✅" if config['freelancehunt']['categories'][cat] else "❌"
+        keyboard["inline_keyboard"].append([
+            {
+                "text": f"{status} {cat}",
+                "callback_data": f"toggle_fh_{cat}"
+            }
+        ])
+    
+    # Kabanchik категории
+    keyboard["inline_keyboard"].append([{"text": "────────────────", "callback_data": "dummy"}])
+    for cat in config['kabanchik']['categories'].keys():
+        status = "✅" if config['kabanchik']['categories'][cat] else "❌"
+        keyboard["inline_keyboard"].append([
+            {
+                "text": f"{status} KB: {cat}",
+                "callback_data": f"toggle_kb_{cat}"
+            }
+        ])
+    
+    # Кнопки управления
+    keyboard["inline_keyboard"].append([{"text": "────────────────", "callback_data": "dummy"}])
+    keyboard["inline_keyboard"].append([
+        {"text": "🔄 Сброс", "callback_data": "reset_config"},
+        {"text": "❌ Закрыть", "callback_data": "close_settings"}
+    ])
+    
+    return keyboard
+
 def clean_html_text(text):
     if not text:
         return ""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+def send_telegram_message(text, reply_markup=None):
+    """Отправляет сообщение в Telegram"""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    
+    payload = {
+        "chat_id": CHAT_ID, 
+        "text": text, 
+        "parse_mode": "HTML"
+    }
+    
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    
+    try:
+        response = requests.post(url, json=payload)
+        return response.json() if response.status_code == 200 else None
+    except Exception as e:
+        print(f"Ошибка отправки: {e}")
+        return None
 
 def send_telegram_message_with_two_buttons(text, b1_text, b1_url, b2_text, b2_url):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -87,10 +181,118 @@ def send_telegram_message_with_two_buttons(text, b1_text, b1_url, b2_text, b2_ur
     except Exception as e:
         print(f"Ошибка отправки в Telegram: {e}")
 
+def handle_updates():
+    """Слушает обновления от Telegram (команды и callback)"""
+    offset = 0
+    config = load_config()
+    
+    while True:
+        try:
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={offset}&timeout=30"
+            response = requests.get(url)
+            updates = response.json().get('result', [])
+            
+            for update in updates:
+                offset = max(offset, update['update_id'] + 1)
+                
+                # Обработка команд
+                if 'message' in update:
+                    message = update['message']
+                    text = message.get('text', '').lower()
+                    
+                    if text == '/settings':
+                        config = load_config()
+                        settings_text = get_settings_text(config)
+                        keyboard = create_settings_keyboard(config)
+                        send_telegram_message(settings_text, keyboard)
+                        print("✅ Меню /settings отправлено")
+                    
+                    elif text == '/help':
+                        help_text = """
+📚 <b>ДОСТУПНЫЕ КОМАНДЫ:</b>
+
+/settings - Открыть настройки категорий
+/help - Эта справка
+/status - Статус бота
+
+<b>В меню настроек:</b>
+- Нажимай на категорию чтобы включить/выключить
+- 🔄 Сброс - вернуть дефолтные настройки
+- ❌ Закрыть - закрыть меню
+"""
+                        send_telegram_message(help_text)
+                        print("✅ Справка отправлена")
+                
+                # Обработка кликов на кнопки
+                elif 'callback_query' in update:
+                    callback = update['callback_query']
+                    callback_id = callback['id']
+                    data = callback['data']
+                    
+                    config = load_config()
+                    
+                    # Переключение категорий Freelancehunt
+                    if data.startswith('toggle_fh_'):
+                        cat_name = data.replace('toggle_fh_', '')
+                        if cat_name in config['freelancehunt']['categories']:
+                            config['freelancehunt']['categories'][cat_name] = not config['freelancehunt']['categories'][cat_name]
+                            save_config(config)
+                            print(f"✅ Freelancehunt: {cat_name} -> {config['freelancehunt']['categories'][cat_name]}")
+                    
+                    # Переключение категорий Kabanchik
+                    elif data.startswith('toggle_kb_'):
+                        cat_name = data.replace('toggle_kb_', '')
+                        if cat_name in config['kabanchik']['categories']:
+                            config['kabanchik']['categories'][cat_name] = not config['kabanchik']['categories'][cat_name]
+                            save_config(config)
+                            print(f"✅ Kabanchik: {cat_name} -> {config['kabanchik']['categories'][cat_name]}")
+                    
+                    # Сброс конфига
+                    elif data == 'reset_config':
+                        config = load_config()
+                        for cat in config['freelancehunt']['categories']:
+                            config['freelancehunt']['categories'][cat] = True
+                        for cat in config['kabanchik']['categories']:
+                            config['kabanchik']['categories'][cat] = True
+                        config['freelancehunt']['min_budget'] = 0
+                        save_config(config)
+                        print("✅ Конфиг сброшен")
+                    
+                    # Закрыть меню
+                    elif data == 'close_settings':
+                        url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+                        requests.post(url, json={"callback_query_id": callback_id, "text": "Меню закрыто"})
+                        return
+                    
+                    # Обновляем сообщение с новыми кнопками
+                    if data not in ['close_settings', 'dummy']:
+                        config = load_config()
+                        settings_text = get_settings_text(config)
+                        keyboard = create_settings_keyboard(config)
+                        
+                        edit_url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+                        edit_payload = {
+                            "chat_id": CHAT_ID,
+                            "message_id": callback['message']['message_id'],
+                            "text": settings_text,
+                            "parse_mode": "HTML",
+                            "reply_markup": keyboard
+                        }
+                        requests.post(edit_url, json=edit_payload)
+                        
+                        # Ответ на callback
+                        url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+                        requests.post(url, json={"callback_query_id": callback_id, "text": "✅ Сохранено!"})
+        
+        except Exception as e:
+            print(f"Ошибка в обработчике обновлений: {e}")
+            time.sleep(1)
+
 # --- МОНИТОРИНГ FREELANCEHUNT ---
 def check_freelancehunt_loop():
     print("Запущена служба Freelancehunt.")
-    # Быстрый сбор существующих на старте проектов
+    config = load_config()
+    
     try:
         feed = feedparser.parse(FH_RSS_URL)
         for entry in feed.entries:
@@ -100,7 +302,9 @@ def check_freelancehunt_loop():
 
     while True:
         try:
+            config = load_config()
             feed = feedparser.parse(FH_RSS_URL)
+            
             for entry in reversed(feed.entries):
                 project_id = entry.get('id', entry.link)
                 if project_id not in fh_sent_projects:
@@ -119,8 +323,8 @@ def check_freelancehunt_loop():
 
                     # ✅ ФИЛЬТР: Проверяем, в разрешённых ли категориях
                     category_allowed = False
-                    for allowed_cat in ALLOWED_FH_CATEGORIES:
-                        if allowed_cat.lower() in category_name.lower():
+                    for cat in config['freelancehunt']['categories']:
+                        if config['freelancehunt']['categories'][cat] and cat.lower() in category_name.lower():
                             category_allowed = True
                             break
                     
@@ -155,7 +359,7 @@ def check_freelancehunt_loop():
             
         time.sleep(FH_INTERVAL)
 
-# --- УЛУЧШЕННЫЙ МОНИТОРИНГ КАБАНЧИКА ---
+# --- МОНИТОРИНГ КАБАНЧИКА ---
 def check_kabanchik_loop():
     print("Запущена служба Kabanchik.ua.")
     headers = {
@@ -163,7 +367,6 @@ def check_kabanchik_loop():
         "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7"
     }
     
-    # ПЕРВИЧНЫЙ СБОР: Скрипт быстро соберет текущую базу БЕЗ зависания цикла
     for url in KABANCHIK_URLS:
         try:
             res = requests.get(url, headers=headers, timeout=10)
@@ -181,6 +384,7 @@ def check_kabanchik_loop():
 
     while True:
         try:
+            config = load_config()
             for url in KABANCHIK_URLS:
                 raw_cat = url.split('/')[-1]
                 if "ai-poslugi" in raw_cat:
@@ -188,7 +392,11 @@ def check_kabanchik_loop():
                 elif "foto" in raw_cat:
                     category_name = "Фото и Видео"
                 else:
-                    category_name = "Работа в интернете (Удаленка)"
+                    category_name = "Работа в интернете"
+                
+                # Проверяем, включена ли эта категория
+                if not config['kabanchik']['categories'].get(category_name, False):
+                    continue
                 
                 response = requests.get(url, headers=headers, timeout=15)
                 if response.status_code == 200:
@@ -257,8 +465,10 @@ if __name__ == "__main__":
     
     Thread(target=check_freelancehunt_loop, daemon=True).start()
     Thread(target=check_kabanchik_loop, daemon=True).start()
+    Thread(target=handle_updates, daemon=True).start()
     
-    print("Все службы мониторинга успешно запущены в облаке!")
+    print("✅ Все службы мониторинга успешно запущены в облаке!")
+    print("📱 Бот готов к работе. Команды доступны без ограничений.")
     
     while True:
         time.sleep(3600)
