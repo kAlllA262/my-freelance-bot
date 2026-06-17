@@ -37,9 +37,17 @@ def run_web_server():
 fh_sent_projects = set()
 kabanchik_sent_tasks = set()
 
+# Безопасное экранирование текста, чтобы знаки < и > не ломали HTML-разметку Telegram
+def clean_html_text(text):
+    if not text:
+        return ""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
 # Функция отправки сообщения с кнопкой
 def send_telegram_message_with_button(text, button_text, button_url):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    
+    button_url = button_url.strip()
     
     reply_markup = {
         "inline_keyboard": [
@@ -57,7 +65,12 @@ def send_telegram_message_with_button(text, button_text, button_url):
     }
     
     try:
-        requests.post(url, json=payload)
+        response = requests.post(url, json=payload)
+        # Если Telegram всё равно забраковал кнопку, отправляем резервный вариант
+        if response.status_code != 200:
+            print(f"Ошибка Telegram API при отправке кнопки: {response.text}")
+            fallback_text = text + f"\n\n🔗 <b>Ссылка:</b> {button_url}"
+            requests.post(url, json={"chat_id": CHAT_ID, "text": fallback_text, "parse_mode": "HTML"})
     except Exception as e:
         print(f"Ошибка отправки в Telegram: {e}")
 
@@ -82,14 +95,17 @@ def check_freelancehunt_loop():
                     if len(description) > 400: 
                         description = description[:400] + "..."
 
-                    # КРАСИВЫЙ ШАБЛОН ДЛЯ ФРИЛАНСХАНТ
+                    # Очищаем заголовки и описания от опасных символов
+                    safe_title = clean_html_text(entry.title)
+                    safe_description = clean_html_text(description)
+
                     message = (
                         f"💼 <b>НОВЫЙ ПРОЕКТ • Freelancehunt</b>\n"
                         f"━━━━━━━━━━━━━━━━━━━━\n\n"
                         f"📌 <b>Задание:</b>\n"
-                        f"{entry.title}\n\n"
+                        f"{safe_title}\n\n"
                         f"📝 <b>Описание:</b>\n"
-                        f"<blockquote>{description}</blockquote>"
+                        f"<blockquote>{safe_description}</blockquote>"
                     )
                     
                     send_telegram_message_with_button(
@@ -128,8 +144,15 @@ def check_kabanchik_loop():
                         if not link_tag: 
                             continue
                             
-                        href = link_tag['href']
-                        task_link = href if href.startswith("http") else "https://kabanchik.ua" + href
+                        href = link_tag['href'].strip()
+                        
+                        if href.startswith("http"):
+                            task_link = href
+                        else:
+                            if not href.startswith("/"):
+                                href = "/" + href
+                            task_link = "https://kabanchik.ua" + href
+                        
                         task_id = task_link.split("-")[-1].replace("/", "")
                         
                         if task_id not in kabanchik_sent_tasks:
@@ -144,13 +167,16 @@ def check_kabanchik_loop():
                             price_tag = task.find("span", class_=["task-card__price", "b-task-item__price"])
                             price = price_tag.get_text(strip=True) if price_tag else "Бюджет не указан"
                             
-                            # КРАСИВЫЙ ШАБЛОН ДЛЯ КАБАНЧИКА
+                            # Очищаем текст Кабанчика
+                            safe_title = clean_html_text(title)
+                            safe_price = clean_html_text(price)
+
                             message = (
                                 f"🐗 <b>НОВЫЙ ЗАКАЗ • Kabanchik</b>\n"
                                 f"━━━━━━━━━━━━━━━━━━━━\n\n"
                                 f"📌 <b>Что сделать:</b>\n"
-                                f"{title}\n\n"
-                                f"💰 <b>Бюджет:</b> <code>{price}</code>"
+                                f"{safe_title}\n\n"
+                                f"💰 <b>Бюджет:</b> <code>{safe_price}</code>"
                             )
                             
                             send_telegram_message_with_button(
