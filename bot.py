@@ -9,8 +9,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 BOT_TOKEN = "8917936924:AAGdutlt5pgvAsTaZxTvoVboSul6NUUGADQ"
 CHAT_ID = "419172431"
 
-# Настройки для Freelancehunt (Категория "Аудио и Видео" + AI навыки)
-FH_RSS_URL = "https://freelancehunt.com/projects.rss?category=10&skills%5B%5D=215&skills%5B%5D=216"
+# Настройки для Freelancehunt (Монтаж + Анимация/3D + AI генерация фото и видео)
+FH_RSS_URL = "https://freelancehunt.com/projects.rss?category=10&category=27&category=28&category=40"
 FH_INTERVAL = 60  # Проверка раз в минуту
 
 # Настройки для Кабанчика (Кривой Рог + Удаленная работа по всей Украине)
