@@ -8,8 +8,9 @@ from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ==================== НАСТРОЙКИ ====================
-BOT_TOKEN = "8917936924:AAGdutlt5pgvAsTaZxTvoVboSul6NUUGADQ"
-CHAT_ID = "419172431"
+import os
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+CHAT_ID = os.environ.get("CHAT_ID")
 
 # Настройки для Freelancehunt (Видео категории)
 # Аудио видео монтаж=113, AI создание видео=192, Видео реклама=144, 
