@@ -52,16 +52,19 @@ def clean_html_text(text):
         return ""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-# Функция отправки сообщения с кнопкой
-def send_telegram_message_with_button(text, button_text, button_url):
+# Функция отправки сообщения с ДВУМЯ кнопками в ряд
+def send_telegram_message_with_two_buttons(text, b1_text, b1_url, b2_text, b2_url):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     
-    button_url = button_url.strip()
+    b1_url = b1_url.strip()
+    b2_url = b2_url.strip()
     
+    # Создаем две инлайн-кнопки в один ряд
     reply_markup = {
         "inline_keyboard": [
             [
-                {"text": button_text, "url": button_url}
+                {"text": b1_text, "url": b1_url},
+                {"text": b2_text, "url": b2_url}
             ]
         ]
     }
@@ -75,10 +78,10 @@ def send_telegram_message_with_button(text, button_text, button_url):
     
     try:
         response = requests.post(url, json=payload)
-        # Если Telegram всё равно забраковал кнопку, отправляем резервный вариант
+        # Если Telegram забраковал сложную клавиатуру, отправляем резервный вариант со ссылками в тексте
         if response.status_code != 200:
-            print(f"Ошибка Telegram API при отправке кнопки: {response.text}")
-            fallback_text = text + f"\n\n🔗 <b>Ссылка:</b> {button_url}"
+            print(f"Ошибка Telegram API при отправке кнопок: {response.text}")
+            fallback_text = text + f"\n\n🔗 <b>Просмотр:</b> {b1_url}\n⚡ <b>Ставка:</b> {b2_url}"
             requests.post(url, json={"chat_id": CHAT_ID, "text": fallback_text, "parse_mode": "HTML"})
     except Exception as e:
         print(f"Ошибка отправки в Telegram: {e}")
@@ -99,28 +102,37 @@ def check_freelancehunt_loop():
                     if is_first_run: 
                         continue
                     
+                    # Достаем категорию заказа из RSS (если ее нет, пишем "Не указана")
+                    category_name = entry.get('category', 'Не указана')
+                    
                     soup = BeautifulSoup(entry.summary, "html.parser")
                     description = soup.get_text(separator="\n")
                     if len(description) > 400: 
                         description = description[:400] + "..."
 
-                    # Очищаем заголовки и описания от опасных символов
+                    # Очищаем все данные от опасных HTML-символов
                     safe_title = clean_html_text(entry.title)
                     safe_description = clean_html_text(description)
+                    safe_category = clean_html_text(category_name)
 
                     message = (
                         f"💼 <b>НОВЫЙ ПРОЕКТ • Freelancehunt</b>\n"
                         f"━━━━━━━━━━━━━━━━━━━━\n\n"
-                        f"📌 <b>Задание:</b>\n"
-                        f"{safe_title}\n\n"
+                        f"📁 <b>Категория:</b> {safe_category}\n"
+                        f"📌 <b>Задание:</b> {safe_title}\n\n"
                         f"📝 <b>Описание:</b>\n"
                         f"<blockquote>{safe_description}</blockquote>"
                     )
                     
-                    send_telegram_message_with_button(
+                    # Прямая ссылка на блок ставки на сайте Freelancehunt
+                    bid_url = f"{entry.link}#make-bid"
+                    
+                    send_telegram_message_with_two_buttons(
                         text=message, 
-                        button_text="⚡ Откликнуться на проект", 
-                        button_url=entry.link
+                        b1_text="🔎 Открыть", 
+                        b1_url=entry.link,
+                        b2_text="💰 Сделать ставку",
+                        b2_url=bid_url
                     )
         except Exception as e:
             print(f"Ошибка во Freelancehunt: {e}")
@@ -138,7 +150,11 @@ def check_kabanchik_loop():
             is_first_run = len(kabanchik_sent_tasks) == 0
             
             for url in KABANCHIK_URLS:
-                print(f"Проверяю категорию Кабанчика: {url.split('/')[-1]}")
+                # Извлекаем категорию Кабанчика из самого URL для наглядности
+                raw_cat = url.split('/')[-1]
+                category_name = "AI Послуги" if "ai-poslugi" in raw_cat else "Фото и Видео" if "foto" in raw_cat else "Дизайн"
+                
+                print(f"Проверяю категорию Кабанчика: {raw_cat}")
                 response = requests.get(url, headers=headers)
                 
                 if response.status_code == 200:
@@ -176,22 +192,25 @@ def check_kabanchik_loop():
                             price_tag = task.find("span", class_=["task-card__price", "b-task-item__price"])
                             price = price_tag.get_text(strip=True) if price_tag else "Бюджет не указан"
                             
-                            # Очищаем текст Кабанчика
                             safe_title = clean_html_text(title)
                             safe_price = clean_html_text(price)
+                            safe_category = clean_html_text(category_name)
 
                             message = (
                                 f"🐗 <b>НОВЫЙ ЗАКАЗ • Kabanchik</b>\n"
                                 f"━━━━━━━━━━━━━━━━━━━━\n\n"
-                                f"📌 <b>Что сделать:</b>\n"
-                                f"{safe_title}\n\n"
+                                f"📁 <b>Категория:</b> {safe_category}\n"
+                                f"📌 <b>Что сделать:</b> {safe_title}\n\n"
                                 f"💰 <b>Бюджет:</b> <code>{safe_price}</code>"
                             )
                             
-                            send_telegram_message_with_button(
+                            # Для Кабанчика тоже делаем две аккуратные кнопки
+                            send_telegram_message_with_two_buttons(
                                 text=message, 
-                                button_text="⚡ Открыть на Kabanchik", 
-                                button_url=task_link
+                                b1_text="🔎 Открыть", 
+                                b1_url=task_link,
+                                b2_text="🤝 Откликнуться",
+                                b2_url=task_link
                             )
                 else:
                     print(f"Кабанчик ответил ошибкой {response.status_code} для ссылки: {url}")
