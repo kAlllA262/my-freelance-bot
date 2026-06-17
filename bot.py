@@ -94,7 +94,6 @@ def check_freelancehunt_loop():
                     if is_first_run: 
                         continue
                     
-                    # Разделяем заголовок Freelancehunt, если он идет в формате "Категория : Задание"
                     raw_title = entry.title
                     if " : " in raw_title:
                         category_name, project_title = raw_title.split(" : ", 1)
@@ -109,17 +108,16 @@ def check_freelancehunt_loop():
                     if len(description) > 400: 
                         description = description[:400] + "..."
 
-                    # Очищаем текст от опасных HTML-символов
                     safe_title = clean_html_text(project_title.strip())
                     safe_description = clean_html_text(description)
                     safe_category = clean_html_text(category_name.strip())
 
-                    # Шаблон с разделением категорий под Задание
+                    # Изменено: Убран знак 'ъ', добавлен пустой перенос строки перед Категорией
                     message = (
                         f"💼 <b>НОВЫЙ ПРОЕКТ • Freelancehunt</b>\n"
                         f"━━━━━━━━━━━━━━━━━━━━\n\n"
-                        f"📌 <b>Задание:</b> {safe_title}\n"
-                        f"ъ <b>Категория:</b> {safe_category}\n\n"
+                        f"📌 <b>Задание:</b> {safe_title}\n\n"
+                        f"📁 <b>Категория:</b> {safe_category}\n\n"
                         f"📝 <b>Описание:</b>\n"
                         f"<blockquote>{safe_description}</blockquote>"
                     )
@@ -203,11 +201,12 @@ def check_kabanchik_loop():
                             safe_price = clean_html_text(price)
                             safe_category = clean_html_text(category_name)
 
+                            # Изменено: Убран знак 'ъ', добавлен пустой перенос строки перед Категорией
                             message = (
                                 f"🐗 <b>НОВЫЙ ЗАКАЗ • Kabanchik</b>\n"
                                 f"━━━━━━━━━━━━━━━━━━━━\n\n"
-                                f"📌 <b>Что сделать:</b> {safe_title}\n"
-                                f"ъ <b>Категория:</b> {safe_category}\n\n"
+                                f"📌 <b>Что сделать:</b> {safe_title}\n\n"
+                                f"📁 <b>Категория:</b> {safe_category}\n\n"
                                 f"💰 <b>Бюджет:</b> <code>{safe_price}</code>"
                             )
                             
