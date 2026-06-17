@@ -15,6 +15,16 @@ CHAT_ID = "419172431"
 FH_RSS_URL = "https://freelancehunt.com/projects.rss?skills%5B%5D=113&skills%5B%5D=192&skills%5B%5D=144&skills%5B%5D=101&skills%5B%5D=18&skills%5B%5D=91"
 FH_INTERVAL = 60  # Проверка раз в минуту
 
+# ФИЛЬТР: Разрешённые категории Freelancehunt (чтобы не приходили ненужные)
+ALLOWED_FH_CATEGORIES = [
+    "Аудио видео монтаж",
+    "AI создание видео",
+    "Видео реклама",
+    "Обработка видео",
+    "Обработка фото",
+    "Анимация"
+]
+
 # Настройки для Кабанчика (публичные ссылки)
 KABANCHIK_URLS = [
     "https://kabanchik.ua/projects/category/ai-poslugi",
@@ -105,6 +115,19 @@ def check_freelancehunt_loop():
                         category_name = entry.get('category', 'Freelancehunt')
                         project_title = raw_title
 
+                    category_name = category_name.strip()
+
+                    # ✅ ФИЛЬТР: Проверяем, в разрешённых ли категориях
+                    category_allowed = False
+                    for allowed_cat in ALLOWED_FH_CATEGORIES:
+                        if allowed_cat.lower() in category_name.lower():
+                            category_allowed = True
+                            break
+                    
+                    if not category_allowed:
+                        print(f"⏭️  Пропущен проект (категория не в списке): {category_name}")
+                        continue
+
                     soup = BeautifulSoup(entry.summary, "html.parser")
                     description = soup.get_text(separator="\n")
                     if len(description) > 400: 
@@ -112,7 +135,7 @@ def check_freelancehunt_loop():
 
                     safe_title = clean_html_text(project_title.strip())
                     safe_description = clean_html_text(description)
-                    safe_category = clean_html_text(category_name.strip())
+                    safe_category = clean_html_text(category_name)
 
                     message = (
                         f"💼 <b>НОВЫЙ ПРОЕКТ • Freelancehunt</b>\n"
@@ -239,4 +262,3 @@ if __name__ == "__main__":
     
     while True:
         time.sleep(3600)
-
