@@ -37,11 +37,10 @@ def run_web_server():
 fh_sent_projects = set()
 kabanchik_sent_tasks = set()
 
-# ОБНОВЛЕННАЯ ФУНКЦИЯ: Теперь отправляет сообщение с красивой кнопкой-ссылкой
+# Функция отправки сообщения с кнопкой
 def send_telegram_message_with_button(text, button_text, button_url):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     
-    # Формируем структуру встроенной клавиатуры (inline keyboard)
     reply_markup = {
         "inline_keyboard": [
             [
@@ -54,7 +53,7 @@ def send_telegram_message_with_button(text, button_text, button_url):
         "chat_id": CHAT_ID, 
         "text": text, 
         "parse_mode": "HTML",
-        "reply_markup": reply_markup  # Добавляем кнопку к сообщению
+        "reply_markup": reply_markup
     }
     
     try:
@@ -80,18 +79,22 @@ def check_freelancehunt_loop():
                     
                     soup = BeautifulSoup(entry.summary, "html.parser")
                     description = soup.get_text(separator="\n")
-                    if len(description) > 500: 
-                        description = description[:500] + "..."
+                    if len(description) > 400: 
+                        description = description[:400] + "..."
 
+                    # КРАСИВЫЙ ШАБЛОН ДЛЯ ФРИЛАНСХАНТ
                     message = (
-                        f"🚨 <b>Новый заказ! [Freelancehunt]</b>\n\n"
-                        f"📌 <b>{entry.title}</b>\n"
-                        f"📝 {description}"
+                        f"💼 <b>НОВЫЙ ПРОЕКТ • Freelancehunt</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+                        f"📌 <b>Задание:</b>\n"
+                        f"{entry.title}\n\n"
+                        f"📝 <b>Описание:</b>\n"
+                        f"<blockquote>{description}</blockquote>"
                     )
-                    # Вызываем новую функцию с кнопкой
+                    
                     send_telegram_message_with_button(
                         text=message, 
-                        button_text="🔗 Открыть проект", 
+                        button_text="⚡ Откликнуться на проект", 
                         button_url=entry.link
                     )
         except Exception as e:
@@ -139,17 +142,20 @@ def check_kabanchik_loop():
                             title = title_tag.get_text(strip=True) if title_tag else "Новый заказ"
                             
                             price_tag = task.find("span", class_=["task-card__price", "b-task-item__price"])
-                            price = price_tag.get_text(strip=True) if price_tag else "Цена не указана"
+                            price = price_tag.get_text(strip=True) if price_tag else "Бюджет не указан"
                             
+                            # КРАСИВЫЙ ШАБЛОН ДЛЯ КАБАНЧИКА
                             message = (
-                                f"🐗 <b>Новый заказ! [Кабанчик]</b>\n\n"
-                                f"📌 <b>Что сделать:</b> {title}\n"
-                                f"💰 <b>Бюджет:</b> {price}"
+                                f"🐗 <b>НОВЫЙ ЗАКАЗ • Kabanchik</b>\n"
+                                f"━━━━━━━━━━━━━━━━━━━━\n\n"
+                                f"📌 <b>Что сделать:</b>\n"
+                                f"{title}\n\n"
+                                f"💰 <b>Бюджет:</b> <code>{price}</code>"
                             )
-                            # Вызываем новую функцию с кнопкой
+                            
                             send_telegram_message_with_button(
                                 text=message, 
-                                button_text="🔗 Открыть заказ", 
+                                button_text="⚡ Открыть на Kabanchik", 
                                 button_url=task_link
                             )
                 else:
