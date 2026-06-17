@@ -112,7 +112,6 @@ def check_freelancehunt_loop():
                     safe_description = clean_html_text(description)
                     safe_category = clean_html_text(category_name.strip())
 
-                    # Изменено: Убран знак 'ъ', добавлен пустой перенос строки перед Категорией
                     message = (
                         f"💼 <b>НОВЫЙ ПРОЕКТ • Freelancehunt</b>\n"
                         f"━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -201,7 +200,7 @@ def check_kabanchik_loop():
                             safe_price = clean_html_text(price)
                             safe_category = clean_html_text(category_name)
 
-                            # Изменено: Убран знак 'ъ', добавлен пустой перенос строки перед Категорией
+                            # Твёрдый знак УБРАН полностью
                             message = (
                                 f"🐗 <b>НОВЫЙ ЗАКАЗ • Kabanchik</b>\n"
                                 f"━━━━━━━━━━━━━━━━━━━━\n\n"
