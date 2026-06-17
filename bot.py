@@ -1,282 +1,277 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Готовый формат сообщений для Telegram-бота</title>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Prata&family=Inter:wght@400;500;600;700;800&display=swap');
+import time
+import requests
+import feedparser
+import json
+import os
+import re
+from bs4 import BeautifulSoup
+from threading import Thread
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
-    :root{
-      --bg:#f4efe7;
-      --panel:#fffaf4;
-      --ink:#1f1a16;
-      --muted:#6d645c;
-      --line:#dacdbf;
-      --accent:#9f4f2d;
-      --accent-2:#2e6d62;
-      --soft:#efe4d7;
-      --shadow:0 18px 45px rgba(63,39,21,.08);
-      --radius:24px;
+# ==================== НАСТРОЙКИ ====================
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+CHAT_ID = os.environ.get("CHAT_ID")
+
+FH_RSS_URL = "https://freelancehunt.com/projects.rss?skills%5B%5D=113&skills%5B%5D=192&skills%5B%5D=144&skills%5B%5D=101&skills%5B%5D=18&skills%5B%5D=91"
+FH_INTERVAL = 60
+
+KABANCHIK_URLS = [
+    "https://kabanchik.ua/projects/category/ai-poslugi",
+    "https://kabanchik.ua/projects/category/foto-i-video-posluhy",
+    "https://kabanchik.ua/projects/category/roboty-v-interneti",
+]
+KABANCHIK_INTERVAL = 30
+
+CONFIG_FILE = "config.json"
+# ====================================================
+
+
+class HealthCheckServer(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+        self.wfile.write(b"Combo Multi-Category Bot is running")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        return
+
+
+def run_web_server():
+    server = HTTPServer(("0.0.0.0", 10000), HealthCheckServer)
+    server.serve_forever()
+
+
+fh_sent_projects = set()
+kabanchik_sent_tasks = set()
+
+
+def get_default_config():
+    return {
+        "freelancehunt": {
+            "categories": {
+                "Аудио/видео монтаж": True,
+                "AI создание видео": True,
+                "Видео реклама": True,
+                "Обработка видео": True,
+                "Обработка фото": True,
+                "Анимация": True
+            },
+            "min_budget": 0,
+            "keywords": ["видео", "монтаж", "AI", "анимация", "реклама"]
+        },
+        "kabanchik": {
+            "categories": {
+                "AI услуги": True,
+                "Фото и видео услуги": True,
+                "Работы в интернете": True
+            }
+        }
     }
 
-    *{box-sizing:border-box}
-    html,body{margin:0;padding:0}
-    body{
-      background:
-        radial-gradient(circle at top left, rgba(159,79,45,.10), transparent 24%),
-        radial-gradient(circle at right 20%, rgba(46,109,98,.10), transparent 20%),
-        linear-gradient(180deg, #f7f2ea 0%, #f1eadf 100%);
-      color:var(--ink);
-      font-family:"Inter", sans-serif;
-      padding:28px;
+
+def load_config():
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"Ошибка загрузки конфига: {e}")
+    return None
+
+
+def save_config(config):
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        print(f"Ошибка сохранения конфига: {e}")
+        return False
+
+
+def ensure_config_exists():
+    config = load_config()
+    if not config:
+        config = get_default_config()
+        save_config(config)
+    return config
+
+
+def get_settings_text(config):
+    text = "⚙️ <b>НАСТРОЙКИ БОТА</b>\n\n"
+
+    text += "📁 <b>FREELANCEHUNT КАТЕГОРИИ:</b>\n"
+    for cat, enabled in config["freelancehunt"]["categories"].items():
+        status = "✅" if enabled else "❌"
+        text += f"{status} {cat}\n"
+
+    text += f"\n💰 <b>МИНИМАЛЬНЫЙ БЮДЖЕТ:</b> ${config['freelancehunt']['min_budget']}\n"
+
+    text += "\n🔍 <b>КЛЮЧЕВЫЕ СЛОВА:</b>\n"
+    text += ", ".join(config["freelancehunt"]["keywords"]) + "\n"
+
+    text += "\n📁 <b>KABANCHIK КАТЕГОРИИ:</b>\n"
+    for cat, enabled in config["kabanchik"]["categories"].items():
+        status = "✅" if enabled else "❌"
+        text += f"{status} {cat}\n"
+
+    return text
+
+
+def create_settings_keyboard(config):
+    keyboard = {"inline_keyboard": []}
+
+    keyboard["inline_keyboard"].append([
+        {"text": "💰 Бюджет", "callback_data": "open_budget"},
+        {"text": "🔍 Ключевые слова", "callback_data": "open_keywords"}
+    ])
+
+    keyboard["inline_keyboard"].append([
+        {"text": "📁 Freelancehunt", "callback_data": "show_fh_categories"}
+    ])
+
+    keyboard["inline_keyboard"].append([
+        {"text": "📁 Kabanchik", "callback_data": "show_kb_categories"}
+    ])
+
+    keyboard["inline_keyboard"].append([
+        {"text": "🔄 Сброс", "callback_data": "reset_config"},
+        {"text": "❌ Закрыть", "callback_data": "close_settings"}
+    ])
+
+    return keyboard
+
+
+def create_budget_keyboard():
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "$0", "callback_data": "budget_0"},
+                {"text": "$50", "callback_data": "budget_50"},
+                {"text": "$100", "callback_data": "budget_100"}
+            ],
+            [
+                {"text": "$200", "callback_data": "budget_200"},
+                {"text": "$500", "callback_data": "budget_500"}
+            ],
+            [
+                {"text": "⬅️ Назад", "callback_data": "back_to_settings"}
+            ]
+        ]
     }
 
-    .shell{
-      max-width:1100px;
-      margin:0 auto;
-      display:grid;
-      gap:24px;
+
+def create_keywords_keyboard():
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "Видео", "callback_data": "kw_video"},
+                {"text": "Монтаж", "callback_data": "kw_edit"}
+            ],
+            [
+                {"text": "AI", "callback_data": "kw_ai"},
+                {"text": "Анимация", "callback_data": "kw_anim"}
+            ],
+            [
+                {"text": "Реклама", "callback_data": "kw_ads"},
+                {"text": "Фото", "callback_data": "kw_photo"}
+            ],
+            [
+                {"text": "⬅️ Назад", "callback_data": "back_to_settings"}
+            ]
+        ]
     }
 
-    .hero,.card,.code{
-      background:rgba(255,250,244,.78);
-      backdrop-filter:blur(10px);
-      border:1px solid rgba(218,205,191,.85);
-      border-radius:var(--radius);
-      box-shadow:var(--shadow);
-      animation:up .7s ease both;
+
+def clean_html_text(text):
+    if not text:
+        return ""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def send_telegram_message(text, reply_markup=None):
+    if not BOT_TOKEN or not CHAT_ID:
+        print("BOT_TOKEN или CHAT_ID не заданы")
+        return None
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML"
     }
 
-    .hero{padding:28px}
-    .hero h1{
-      margin:0 0 10px;
-      font-family:"Prata", serif;
-      font-size:clamp(2rem,4vw,3.8rem);
-      line-height:.95;
-      letter-spacing:-.02em;
-    }
-    .hero p{
-      margin:0;
-      color:var(--muted);
-      max-width:70ch;
-      line-height:1.7;
-    }
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
 
-    .preview{
-      overflow:hidden;
-    }
+    try:
+        response = requests.post(url, json=payload, timeout=20)
+        if response.status_code != 200:
+            print(f"Ошибка Telegram API: {response.text}")
+        return response.json() if response.status_code == 200 else None
+    except Exception as e:
+        print(f"Ошибка отправки: {e}")
+        return None
 
-    .preview-head{
-      padding:18px 22px;
-      border-bottom:1px solid var(--line);
-      display:flex;
-      justify-content:space-between;
-      gap:16px;
-      align-items:center;
-      background:linear-gradient(180deg, rgba(255,255,255,.65), rgba(255,250,244,.96));
+
+def send_telegram_message_with_button(text, button_text, button_url):
+    if not BOT_TOKEN or not CHAT_ID:
+        print("BOT_TOKEN или CHAT_ID не заданы")
+        return
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+
+    reply_markup = {
+        "inline_keyboard": [[
+            {"text": button_text, "url": button_url.strip()}
+        ]]
     }
 
-    .preview-head strong{
-      font-size:.82rem;
-      letter-spacing:.18em;
-      text-transform:uppercase;
-      color:var(--muted);
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML",
+        "reply_markup": reply_markup
     }
 
-    .tag{
-      font-size:.8rem;
-      font-weight:800;
-      color:var(--accent-2);
-      background:rgba(46,109,98,.08);
-      border:1px solid rgba(46,109,98,.18);
-      border-radius:999px;
-      padding:8px 12px;
-    }
+    try:
+        response = requests.post(url, json=payload, timeout=20)
+        if response.status_code != 200:
+            print(f"Ошибка Telegram API: {response.text}")
+    except Exception as e:
+        print(f"Ошибка отправки в Telegram: {e}")
 
-    .telegram{
-      padding:24px;
-      display:grid;
-      gap:18px;
-      background:var(--panel);
-    }
 
-    .bubble{
-      width:min(100%, 760px);
-      background:#fffdf9;
-      border:1px solid #eadfce;
-      border-radius:22px 22px 22px 10px;
-      padding:22px;
-      box-shadow:0 10px 24px rgba(48,31,18,.06);
-      display:grid;
-      gap:16px;
-    }
+def extract_budget(text):
+    if not text:
+        return 0
+    match = re.search(r'(\d[\d\s]*)', text.replace(",", ""))
+    if match:
+        try:
+            return int(match.group(1).replace(" ", ""))
+        except:
+            return 0
+    return 0
 
-    .row{
-      display:grid;
-      gap:8px;
-    }
 
-    .label{
-      font-size:.74rem;
-      text-transform:uppercase;
-      letter-spacing:.18em;
-      color:var(--muted);
-      font-weight:800;
-    }
+def matches_keywords(text, keywords):
+    if not text:
+        return False
+    low = text.lower()
+    for kw in keywords:
+        if kw.lower() in low:
+            return True
+    return False
 
-    .exchange{
-      display:inline-flex;
-      width:max-content;
-      align-items:center;
-      gap:10px;
-      background:var(--soft);
-      color:var(--accent);
-      border:1px solid rgba(159,79,45,.16);
-      padding:10px 14px;
-      border-radius:999px;
-      font-weight:800;
-    }
 
-    .dot{
-      width:10px;height:10px;border-radius:50%;
-      background:linear-gradient(135deg, var(--accent), #d18f54);
-      box-shadow:0 0 0 5px rgba(159,79,45,.10);
-    }
-
-    .title{
-      font-family:"Prata", serif;
-      font-size:clamp(1.45rem,2.6vw,2.3rem);
-      line-height:1.08;
-      margin:0;
-    }
-
-    .category{
-      display:inline-flex;
-      width:max-content;
-      align-items:center;
-      gap:10px;
-      background:rgba(46,109,98,.08);
-      color:var(--accent-2);
-      border:1px solid rgba(46,109,98,.18);
-      padding:10px 14px;
-      border-radius:999px;
-      font-weight:800;
-    }
-
-    .text{
-      color:#2b241f;
-      line-height:1.8;
-      white-space:pre-line;
-    }
-
-    .button{
-      display:inline-flex;
-      width:max-content;
-      align-items:center;
-      justify-content:center;
-      min-width:220px;
-      text-decoration:none;
-      padding:15px 20px;
-      border-radius:16px;
-      color:#fffaf4;
-      background:linear-gradient(135deg, var(--accent), #7f3417);
-      font-weight:800;
-      box-shadow:0 14px 28px rgba(127,52,23,.18);
-      transition:.25s ease;
-    }
-
-    .button:hover{
-      transform:translateY(-2px);
-      box-shadow:0 18px 34px rgba(127,52,23,.24);
-    }
-
-    .code{
-      padding:0;
-      overflow:hidden;
-    }
-
-    .code-head{
-      padding:16px 22px;
-      border-bottom:1px solid rgba(255,255,255,.08);
-      background:#1f1a17;
-      color:#f0e7dc;
-      font-size:.82rem;
-      letter-spacing:.16em;
-      text-transform:uppercase;
-      font-weight:800;
-    }
-
-    pre{
-      margin:0;
-      padding:24px;
-      overflow:auto;
-      background:#181412;
-      color:#f6ede2;
-      font:500 14px/1.7 "Inter", sans-serif;
-      white-space:pre-wrap;
-      word-break:break-word;
-    }
-
-    @keyframes up{
-      from{opacity:0;transform:translateY(18px)}
-      to{opacity:1;transform:none}
-    }
-
-    @media (max-width:700px){
-      body{padding:16px}
-      .preview-head{flex-direction:column;align-items:flex-start}
-      .button{width:100%}
-    }
-  </style>
-</head>
-<body>
-  <main class="shell">
-    <section class="hero">
-      <h1>Аккуратный формат сообщений для бота</h1>
-      <p>
-        Ниже — уже готовый код. Он делает сообщение более чистым: отдельно показывает <b>биржу</b>, <b>название заказа</b>, <b>категорию</b> и <b>описание</b>. Ссылка остаётся в красивой кнопке.
-      </p>
-    </section>
-
-    <section class="card preview">
-      <div class="preview-head">
-        <strong>Пример того, как будет выглядеть сообщение</strong>
-        <span class="tag">Telegram message preview</span>
-      </div>
-
-      <div class="telegram">
-        <article class="bubble">
-          <div class="row">
-            <span class="label">Биржа</span>
-            <div class="exchange"><span class="dot"></span> Freelancehunt</div>
-          </div>
-
-          <div class="row">
-            <span class="label">Заказ</span>
-            <h2 class="title">Смонтировать рекламный ролик для Instagram Reels</h2>
-          </div>
-
-          <div class="row">
-            <span class="label">Категория</span>
-            <div class="category">Видео реклама</div>
-          </div>
-
-          <div class="row">
-            <span class="label">Описание</span>
-            <div class="text">Нужен динамичный ролик до 30 секунд.
-Добавить титры, музыку, аккуратные переходы и сделать адаптацию под вертикальный формат.
-Желателен опыт в рекламном монтаже и понимание трендов соцсетей.</div>
-          </div>
-
-          <a class="button" href="#">🔗 Открыть проект</a>
-        </article>
-      </div>
-    </section>
-
-    <section class="code">
-      <div class="code-head">Замените этим кодом функции в bot.py</div>
-<pre>def detect_fh_category(text):
+def detect_fh_category(text):
     text_low = text.lower()
 
     category_map = {
@@ -298,26 +293,26 @@
 
 def format_freelancehunt_message(title, summary, category):
     return (
-        f"🟢 &lt;b&gt;БИРЖА&lt;/b&gt;\n"
+        f"🟢 <b>БИРЖА</b>\n"
         f"Freelancehunt\n\n"
-        f"📌 &lt;b&gt;НАЗВАНИЕ ЗАКАЗА&lt;/b&gt;\n"
+        f"📌 <b>НАЗВАНИЕ ЗАКАЗА</b>\n"
         f"{clean_html_text(title)}\n\n"
-        f"🏷 &lt;b&gt;КАТЕГОРИЯ&lt;/b&gt;\n"
+        f"🏷 <b>КАТЕГОРИЯ</b>\n"
         f"{clean_html_text(category)}\n\n"
-        f"📝 &lt;b&gt;ОПИСАНИЕ&lt;/b&gt;\n"
+        f"📝 <b>ОПИСАНИЕ</b>\n"
         f"{clean_html_text(summary[:900])}"
     )
 
 
 def format_kabanchik_message(title, category, description="Описание на сайте Kabanchik"):
     return (
-        f"🟠 &lt;b&gt;БИРЖА&lt;/b&gt;\n"
+        f"🟠 <b>БИРЖА</b>\n"
         f"Kabanchik\n\n"
-        f"📌 &lt;b&gt;НАЗВАНИЕ ЗАКАЗА&lt;/b&gt;\n"
+        f"📌 <b>НАЗВАНИЕ ЗАКАЗА</b>\n"
         f"{clean_html_text(title)}\n\n"
-        f"🏷 &lt;b&gt;КАТЕГОРИЯ&lt;/b&gt;\n"
+        f"🏷 <b>КАТЕГОРИЯ</b>\n"
         f"{clean_html_text(category)}\n\n"
-        f"📝 &lt;b&gt;ОПИСАНИЕ&lt;/b&gt;\n"
+        f"📝 <b>ОПИСАНИЕ</b>\n"
         f"{clean_html_text(description)}"
     )
 
@@ -341,7 +336,7 @@ def parse_freelancehunt():
             text_for_filter = f"{title} {summary}"
             budget = extract_budget(text_for_filter)
 
-            if min_budget and budget &lt; min_budget:
+            if min_budget and budget < min_budget:
                 continue
 
             if enabled_keywords and not matches_keywords(text_for_filter, enabled_keywords):
@@ -378,7 +373,7 @@ def parse_kabanchik():
                 href = a["href"]
                 title = a.get_text(" ", strip=True)
 
-                if not title or len(title) &lt; 5:
+                if not title or len(title) < 5:
                     continue
 
                 if "project" not in href and "task" not in href:
@@ -411,8 +406,183 @@ def parse_kabanchik():
                 send_telegram_message_with_button(msg, "🔗 Открыть задачу", full_link)
 
     except Exception as e:
-        print(f"Ошибка парсинга Kabanchik: {e}")</pre>
-    </section>
-  </main>
-</body>
-</html>
+        print(f"Ошибка парсинга Kabanchik: {e}")
+
+
+def handle_updates():
+    offset = 0
+    config = ensure_config_exists()
+
+    while True:
+        try:
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={offset}&timeout=30"
+            response = requests.get(url, timeout=40)
+            updates = response.json().get("result", [])
+
+            for update in updates:
+                offset = max(offset, update["update_id"] + 1)
+
+                if "message" in update:
+                    message = update["message"]
+                    text = message.get("text", "").lower()
+
+                    if text == "/settings":
+                        config = ensure_config_exists()
+                        settings_text = get_settings_text(config)
+                        keyboard = create_settings_keyboard(config)
+                        send_telegram_message(settings_text, keyboard)
+
+                    elif text == "/help":
+                        help_text = """
+📚 <b>ДОСТУПНЫЕ КОМАНДЫ:</b>
+
+/settings - Открыть настройки
+/help - Эта справка
+/status - Статус бота
+
+<b>В меню:</b>
+- Бюджет
+- Ключевые слова
+- Категории
+- Сброс
+"""
+                        send_telegram_message(help_text)
+
+                    elif text == "/status":
+                        config = ensure_config_exists()
+                        status_text = "✅ <b>БОТ РАБОТАЕТ</b>\n\n"
+                        status_text += f"💰 Бюджет: ${config['freelancehunt']['min_budget']}\n"
+                        status_text += f"🔍 Ключевые слова: {', '.join(config['freelancehunt']['keywords'])}\n"
+                        send_telegram_message(status_text)
+
+                elif "callback_query" in update:
+                    callback = update["callback_query"]
+                    callback_id = callback["id"]
+                    data = callback["data"]
+
+                    config = ensure_config_exists()
+
+                    if data == "open_settings":
+                        settings_text = get_settings_text(config)
+                        keyboard = create_settings_keyboard(config)
+                        send_telegram_message(settings_text, keyboard)
+
+                    elif data == "open_budget":
+                        send_telegram_message("💰 <b>Выберите минимальный бюджет:</b>", create_budget_keyboard())
+
+                    elif data == "open_keywords":
+                        send_telegram_message("🔍 <b>Выберите ключевое слово:</b>", create_keywords_keyboard())
+
+                    elif data == "back_to_settings":
+                        settings_text = get_settings_text(config)
+                        keyboard = create_settings_keyboard(config)
+                        send_telegram_message(settings_text, keyboard)
+
+                    elif data == "show_fh_categories":
+                        text = "📁 <b>Freelancehunt категории:</b>\n\n"
+                        for cat, enabled in config["freelancehunt"]["categories"].items():
+                            status = "✅" if enabled else "❌"
+                            text += f"{status} {cat}\n"
+                        send_telegram_message(text, create_settings_keyboard(config))
+
+                    elif data == "show_kb_categories":
+                        text = "📁 <b>Kabanchik категории:</b>\n\n"
+                        for cat, enabled in config["kabanchik"]["categories"].items():
+                            status = "✅" if enabled else "❌"
+                            text += f"{status} {cat}\n"
+                        send_telegram_message(text, create_settings_keyboard(config))
+
+                    elif data.startswith("budget_"):
+                        budget = int(data.replace("budget_", ""))
+                        config["freelancehunt"]["min_budget"] = budget
+                        save_config(config)
+                        send_telegram_message(f"✅ Минимальный бюджет установлен: ${budget}", create_settings_keyboard(config))
+
+                    elif data.startswith("kw_"):
+                        keyword_map = {
+                            "kw_video": "видео",
+                            "kw_edit": "монтаж",
+                            "kw_ai": "AI",
+                            "kw_anim": "анимация",
+                            "kw_ads": "реклама",
+                            "kw_photo": "фото"
+                        }
+                        keyword = keyword_map.get(data)
+                        if keyword:
+                            keywords = config["freelancehunt"]["keywords"]
+                            if keyword in keywords:
+                                keywords.remove(keyword)
+                                msg = f"❌ Ключевое слово удалено: {keyword}"
+                            else:
+                                keywords.append(keyword)
+                                msg = f"✅ Ключевое слово добавлено: {keyword}"
+                            config["freelancehunt"]["keywords"] = keywords
+                            save_config(config)
+                            send_telegram_message(msg, create_settings_keyboard(config))
+
+                    elif data.startswith("toggle_fh_"):
+                        cat_name = data.replace("toggle_fh_", "")
+                        if cat_name in config["freelancehunt"]["categories"]:
+                            config["freelancehunt"]["categories"][cat_name] = not config["freelancehunt"]["categories"][cat_name]
+                            save_config(config)
+                            send_telegram_message(f"✅ Freelancehunt: {cat_name} изменено", create_settings_keyboard(config))
+
+                    elif data.startswith("toggle_kb_"):
+                        cat_name = data.replace("toggle_kb_", "")
+                        if cat_name in config["kabanchik"]["categories"]:
+                            config["kabanchik"]["categories"][cat_name] = not config["kabanchik"]["categories"][cat_name]
+                            save_config(config)
+                            send_telegram_message(f"✅ Kabanchik: {cat_name} изменено", create_settings_keyboard(config))
+
+                    elif data == "reset_config":
+                        config = get_default_config()
+                        save_config(config)
+                        send_telegram_message("🔄 Настройки сброшены", create_settings_keyboard(config))
+
+                    elif data == "close_settings":
+                        url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+                        requests.post(url, json={"callback_query_id": callback_id, "text": "Меню закрыто"})
+                        continue
+
+        except Exception as e:
+            print(f"Ошибка в handle_updates: {e}")
+            time.sleep(5)
+
+
+def monitor_freelancehunt():
+    while True:
+        parse_freelancehunt()
+        time.sleep(FH_INTERVAL)
+
+
+def monitor_kabanchik():
+    while True:
+        parse_kabanchik()
+        time.sleep(KABANCHIK_INTERVAL)
+
+
+def main():
+    if not BOT_TOKEN or not CHAT_ID:
+        print("BOT_TOKEN или CHAT_ID не заданы в переменных окружения")
+        return
+
+    ensure_config_exists()
+    print("Бот запущен")
+
+    web_thread = Thread(target=run_web_server, daemon=True)
+    web_thread.start()
+
+    fh_thread = Thread(target=monitor_freelancehunt, daemon=True)
+    kb_thread = Thread(target=monitor_kabanchik, daemon=True)
+    updates_thread = Thread(target=handle_updates, daemon=True)
+
+    fh_thread.start()
+    kb_thread.start()
+    updates_thread.start()
+
+    while True:
+        time.sleep(60)
+
+
+if __name__ == "__main__":
+    main()
