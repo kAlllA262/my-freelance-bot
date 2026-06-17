@@ -9,16 +9,17 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 BOT_TOKEN = "8917936924:AAGdutlt5pgvAsTaZxTvoVboSul6NUUGADQ"
 CHAT_ID = "419172431"
 
-# Настройки для Freelancehunt
-FH_RSS_URL = "freelancehunt.com/projects.rss?skills%5B%5D=186&skills%5B%5D=191&skills%5B%5D=192&skills%5B%5D=91&skills%5B%5D=113&skills%5B%5D=144&skills%5B%5D=100&skills%5B%5D=102&skills%5B%5D=101&skills%5B%5D=18&skills%5B%5D=143"
+# Настройки для Freelancehunt (Категория "Аудио и Видео" + AI навыки)
+FH_RSS_URL = "https://freelancehunt.com/projects.rss?category=10&skills%5B%5D=215&skills%5B%5D=216"
 FH_INTERVAL = 60  # Проверка раз в минуту
 
-# Настройки для Кабанчика (СПИСОК КАТЕГОРИЙ)
-# Просто добавь свои ссылки внутрь квадратных скобок через запятую
+# Настройки для Кабанчика (Кривой Рог + Удаленная работа по всей Украине)
 KABANCHIK_URLS = [
     "https://kabanchik.ua/ua/cabinet/kryvyi-rih/category/foto-i-video-posluhy",
-    "https://kabanchik.ua/ua/cabinet/kryvyi-rih/category/ai-poslugi", "https://kabanchik.ua/ua/cabinet/kryvyi-rih/category/dyzain",
-    # Можно добавить еще 3 ссылки сюда по такому же принципу
+    "https://kabanchik.ua/ua/cabinet/kryvyi-rih/category/ai-poslugi", 
+    "https://kabanchik.ua/ua/cabinet/kryvyi-rih/category/dyzain",
+    "https://kabanchik.ua/ua/projects/category/ai-poslugi",          
+    "https://kabanchik.ua/ua/projects/category/foto-i-video-posluhy" 
 ]
 KABANCHIK_INTERVAL = 30  # Пауза между полными кругами проверок всех категорий
 # ====================================================
