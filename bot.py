@@ -9,17 +9,17 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 BOT_TOKEN = "8917936924:AAGdutlt5pgvAsTaZxTvoVboSul6NUUGADQ"
 CHAT_ID = "419172431"
 
-# Настройки для Freelancehunt (Монтаж + Анимация/3D + AI генерация фото и видео)
-FH_RSS_URL = "https://freelancehunt.com/projects.rss?category=10&category=27&category=28&category=40"
+# Настройки для Freelancehunt (Видео категории)
+# Аудио видео монтаж=113, AI создание видео=192, Видео реклама=144, 
+# Обработка видео=101, Обработка фото=18, Анимация=91
+FH_RSS_URL = "https://freelancehunt.com/projects.rss?skills%5B%5D=113&skills%5B%5D=192&skills%5B%5D=144&skills%5B%5D=101&skills%5B%5D=18&skills%5B%5D=91"
 FH_INTERVAL = 60  # Проверка раз в минуту
 
-# Настройки для Кабанчика (Кривой Рог + Удаленная работа по всей Украине)
+# Настройки для Кабанчика (публичные ссылки)
 KABANCHIK_URLS = [
-    "https://kabanchik.ua/ua/cabinet/kryvyi-rih/category/foto-i-video-posluhy",
-    "https://kabanchik.ua/ua/cabinet/kryvyi-rih/category/ai-poslugi", 
-    "https://kabanchik.ua/ua/cabinet/kryvyi-rih/category/dyzain",
-    "https://kabanchik.ua/ua/projects/category/ai-poslugi",          
-    "https://kabanchik.ua/ua/projects/category/foto-i-video-posluhy" 
+    "https://kabanchik.ua/projects/category/ai-poslugi",
+    "https://kabanchik.ua/projects/category/foto-i-video-posluhy",
+    "https://kabanchik.ua/projects/category/roboty-v-interneti",
 ]
 KABANCHIK_INTERVAL = 30  # Пауза между полными кругами проверок всех категорий
 # ====================================================
@@ -74,25 +74,27 @@ def send_telegram_message_with_two_buttons(text, b1_text, b1_url, b2_text, b2_ur
         response = requests.post(url, json=payload)
         if response.status_code != 200:
             print(f"Ошибка Telegram API: {response.text}")
-            fallback_text = text + f"\n\n🔗 <b>Просмотр:</b> {b1_url}\n⚡ <b>Ставка:</b> {b2_url}"
-            requests.post(url, json={"chat_id": CHAT_ID, "text": fallback_text, "parse_mode": "HTML"})
     except Exception as e:
         print(f"Ошибка отправки в Telegram: {e}")
 
 # --- МОНИТОРИНГ FREELANCEHUNT ---
 def check_freelancehunt_loop():
-    print("Запущена служба Freelancehunt с умным разделением категорий.")
+    print("Запущена служба Freelancehunt.")
+    # Быстрый сбор существующих на старте проектов
+    try:
+        feed = feedparser.parse(FH_RSS_URL)
+        for entry in feed.entries:
+            fh_sent_projects.add(entry.get('id', entry.link))
+    except Exception as e:
+        print(f"Первичный сбор Freelancehunt не удался: {e}")
+
     while True:
         try:
             feed = feedparser.parse(FH_RSS_URL)
-            is_first_run = len(fh_sent_projects) == 0
-
             for entry in reversed(feed.entries):
                 project_id = entry.get('id', entry.link)
                 if project_id not in fh_sent_projects:
                     fh_sent_projects.add(project_id)
-                    if is_first_run: 
-                        continue
                     
                     raw_title = entry.title
                     if " : " in raw_title:
@@ -122,7 +124,6 @@ def check_freelancehunt_loop():
                     )
                     
                     bid_url = f"{entry.link}#make-bid"
-                    
                     send_telegram_message_with_two_buttons(
                         text=message, b1_text="🔎 Открыть", b1_url=entry.link, b2_text="💰 Сделать ставку", b2_url=bid_url
                     )
@@ -133,25 +134,42 @@ def check_freelancehunt_loop():
 
 # --- УЛУЧШЕННЫЙ МОНИТОРИНГ КАБАНЧИКА ---
 def check_kabanchik_loop():
-    print("Запущена обновленная служба Kabanchik.ua.")
+    print("Запущена служба Kabanchik.ua.")
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7"
     }
+    
+    # ПЕРВИЧНЫЙ СБОР: Скрипт быстро соберет текущую базу БЕЗ зависания цикла
+    for url in KABANCHIK_URLS:
+        try:
+            res = requests.get(url, headers=headers, timeout=10)
+            if res.status_code == 200:
+                soup = BeautifulSoup(res.text, "html.parser")
+                for a in soup.find_all("a", href=True):
+                    if "/tasks/" in a['href'] or "/work/" in a['href']:
+                        task_id = a['href'].strip().split("-")[-1].replace("/", "").split("?")[0]
+                        if task_id:
+                            kabanchik_sent_tasks.add(task_id)
+        except Exception as e:
+            print(f"Ошибка при первичном сборе Кабанчика ({url}): {e}")
+
+    print("Первичная база Кабанчика собрана. Начинаем мониторинг.")
+
     while True:
         try:
-            is_first_run = len(kabanchik_sent_tasks) == 0
-            
             for url in KABANCHIK_URLS:
                 raw_cat = url.split('/')[-1]
-                category_name = "AI Послуги" if "ai-poslugi" in raw_cat else "Фото и Видео" if "foto" in raw_cat else "Дизайн"
+                if "ai-poslugi" in raw_cat:
+                    category_name = "AI Послуги"
+                elif "foto" in raw_cat:
+                    category_name = "Фото и Видео"
+                else:
+                    category_name = "Работа в интернете (Удаленка)"
                 
-                print(f"Проверяю Кабанчик: {raw_cat}...")
                 response = requests.get(url, headers=headers, timeout=15)
-                
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, "html.parser")
-                    
                     tasks = soup.find_all("div", class_=["task-card", "b-task-item"])
                     if not tasks:
                         tasks = soup.find_all("li", class_=["b-task-item", "task-card"])
@@ -171,22 +189,15 @@ def check_kabanchik_loop():
                         if not ("/tasks/" in href or "/work/" in href or "kabanchik.ua" in href):
                             continue
                         
-                        if href.startswith("http"):
-                            task_link = href
-                        else:
-                            if not href.startswith("/"):
-                                href = "/" + href
-                            task_link = "https://kabanchik.ua" + href
+                        task_link = href if href.startswith("http") else "https://kabanchik.ua" + ("" if href.startswith("/") else "/") + href
                         
                         try:
                             task_id = task_link.split("-")[-1].replace("/", "").split("?")[0]
                         except:
                             task_id = task_link
                         
-                        if task_id not in kabanchik_sent_tasks:
+                        if task_id and task_id not in kabanchik_sent_tasks:
                             kabanchik_sent_tasks.add(task_id)
-                            if is_first_run: 
-                                continue
                             
                             title_tag = task.find(["a", "span", "p", "div"], class_=["task-card__title", "b-task-item__title", "task-title"])
                             title = title_tag.get_text(strip=True) if title_tag else link_tag.get_text(strip=True)
@@ -200,7 +211,6 @@ def check_kabanchik_loop():
                             safe_price = clean_html_text(price)
                             safe_category = clean_html_text(category_name)
 
-                            # Твёрдый знак УБРАН полностью
                             message = (
                                 f"🐗 <b>НОВЫЙ ЗАКАЗ • Kabanchik</b>\n"
                                 f"━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -212,8 +222,6 @@ def check_kabanchik_loop():
                             send_telegram_message_with_two_buttons(
                                 text=message, b1_text="🔎 Открыть", b1_url=task_link, b2_text="🤝 Откликнуться", b2_url=task_link
                             )
-                else:
-                    print(f"Кабанчик ответил кодом {response.status_code}")
                 time.sleep(3)
         except Exception as e:
             print(f"Ошибка в модуле Кабанчика: {e}")
@@ -231,3 +239,4 @@ if __name__ == "__main__":
     
     while True:
         time.sleep(3600)
+
