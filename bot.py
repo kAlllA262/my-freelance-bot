@@ -31,6 +31,14 @@ class HealthCheckServer(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"Combo Multi-Category Bot is running")
 
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+        
+    def log_message(self, format, *args):
+        return
+
 def run_web_server():
     server = HTTPServer(('0.0.0.0', 10000), HealthCheckServer)
     server.serve_forever()
