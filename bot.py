@@ -294,8 +294,7 @@ def detect_fh_category(text):
 def format_freelancehunt_message(title, summary, category, budget=None):
     budget_text = f"{budget}" if budget else "Не указана"
     return (
-        f"🟢 <b>Freelancehunt</b>\n\n"
-        f"📌 <b>НАЗВАНИЕ ЗАКАЗА</b>\n"
+        f"🟡 <b>Freelancehunt</b>\n\n"
         f"{clean_html_text(title)}\n\n"
         f"🏷 <b>КАТЕГОРИЯ</b>\n"
         f"{clean_html_text(category)}\n\n"
@@ -309,8 +308,7 @@ def format_freelancehunt_message(title, summary, category, budget=None):
 def format_kabanchik_message(title, category, description="Описание на сайте Kabanchik", budget=None):
     budget_text = f"{budget}" if budget else "Не указана"
     return (
-        f"🟠 <b>Kabanchik</b>\n\n"
-        f"📌 <b>НАЗВАНИЕ ЗАКАЗА</b>\n"
+        f"🟢 <b>Kabanchik</b>\n\n"
         f"{clean_html_text(title)}\n\n"
         f"🏷 <b>КАТЕГОРИЯ</b>\n"
         f"{clean_html_text(category)}\n\n"
