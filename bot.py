@@ -221,19 +221,45 @@ def send_telegram_message(text, reply_markup=None):
         return None
 
 
+def send_telegram_message_with_button(text, button_text, button_url):
+    if not BOT_TOKEN or not CHAT_ID:
+        print("BOT_TOKEN или CHAT_ID не заданы")
+        return
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+
+    reply_markup = {
+        "inline_keyboard": [[
+            {"text": button_text, "url": button_url.strip()}
+        ]]
+    }
+
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML",
+        "reply_markup": reply_markup
+    }
+
+    try:
+        response = requests.post(url, json=payload, timeout=20)
+        if response.status_code != 200:
+            print(f"Ошибка Telegram API: {response.text}")
+    except Exception as e:
+        print(f"Ошибка отправки в Telegram: {e}")
+
+
 def send_telegram_message_with_two_buttons(text, b1_text, b1_url, b2_text, b2_url):
     if not BOT_TOKEN or not CHAT_ID:
         print("BOT_TOKEN или CHAT_ID не заданы")
         return
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    b1_url = b1_url.strip()
-    b2_url = b2_url.strip()
 
     reply_markup = {
         "inline_keyboard": [[
-            {"text": b1_text, "url": b1_url},
-            {"text": b2_text, "url": b2_url}
+            {"text": b1_text, "url": b1_url.strip()},
+            {"text": b2_text, "url": b2_url.strip()}
         ]]
     }
 
@@ -304,10 +330,9 @@ def parse_freelancehunt():
             msg = (
                 f"🟢 <b>Freelancehunt</b>\n"
                 f"📌 <b>{clean_html_text(title)}</b>\n\n"
-                f"{clean_html_text(summary[:700])}\n\n"
-                f"🔗 <a href=\"{link}\">Открыть проект</a>"
+                f"{clean_html_text(summary[:700])}"
             )
-            send_telegram_message(msg)
+            send_telegram_message_with_button(msg, "🔗 Открыть проект", link)
 
     except Exception as e:
         print(f"Ошибка парсинга Freelancehunt: {e}")
@@ -352,10 +377,9 @@ def parse_kabanchik():
 
                 msg = (
                     f"🟠 <b>Kabanchik</b>\n"
-                    f"📌 <b>{clean_html_text(title)}</b>\n\n"
-                    f"🔗 <a href=\"{full_link}\">Открыть задачу</a>"
+                    f"📌 <b>{clean_html_text(title)}</b>"
                 )
-                send_telegram_message(msg)
+                send_telegram_message_with_button(msg, "🔗 Открыть задачу", full_link)
 
     except Exception as e:
         print(f"Ошибка парсинга Kabanchik: {e}")
