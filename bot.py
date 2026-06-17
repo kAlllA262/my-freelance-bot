@@ -46,27 +46,21 @@ def run_web_server():
 fh_sent_projects = set()
 kabanchik_sent_tasks = set()
 
-# Безопасное экранирование текста, чтобы знаки < и > не ломали HTML-разметку Telegram
 def clean_html_text(text):
     if not text:
         return ""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-# Функция отправки сообщения с ДВУМЯ кнопками в ряд
 def send_telegram_message_with_two_buttons(text, b1_text, b1_url, b2_text, b2_url):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    
     b1_url = b1_url.strip()
     b2_url = b2_url.strip()
     
-    # Создаем две инлайн-кнопки в один ряд
     reply_markup = {
-        "inline_keyboard": [
-            [
-                {"text": b1_text, "url": b1_url},
-                {"text": b2_text, "url": b2_url}
-            ]
-        ]
+        "inline_keyboard": [[
+            {"text": b1_text, "url": b1_url},
+            {"text": b2_text, "url": b2_url}
+        ]]
     }
     
     payload = {
@@ -78,9 +72,8 @@ def send_telegram_message_with_two_buttons(text, b1_text, b1_url, b2_text, b2_ur
     
     try:
         response = requests.post(url, json=payload)
-        # Если Telegram забраковал сложную клавиатуру, отправляем резервный вариант со ссылками в тексте
         if response.status_code != 200:
-            print(f"Ошибка Telegram API при отправке кнопок: {response.text}")
+            print(f"Ошибка Telegram API: {response.text}")
             fallback_text = text + f"\n\n🔗 <b>Просмотр:</b> {b1_url}\n⚡ <b>Ставка:</b> {b2_url}"
             requests.post(url, json={"chat_id": CHAT_ID, "text": fallback_text, "parse_mode": "HTML"})
     except Exception as e:
@@ -91,7 +84,6 @@ def check_freelancehunt_loop():
     print("Запущена служба Freelancehunt.")
     while True:
         try:
-            print("Проверяю Freelancehunt...")
             feed = feedparser.parse(FH_RSS_URL)
             is_first_run = len(fh_sent_projects) == 0
 
@@ -102,15 +94,12 @@ def check_freelancehunt_loop():
                     if is_first_run: 
                         continue
                     
-                    # Достаем категорию заказа из RSS (если ее нет, пишем "Не указана")
                     category_name = entry.get('category', 'Не указана')
-                    
                     soup = BeautifulSoup(entry.summary, "html.parser")
                     description = soup.get_text(separator="\n")
                     if len(description) > 400: 
                         description = description[:400] + "..."
 
-                    # Очищаем все данные от опасных HTML-символов
                     safe_title = clean_html_text(entry.title)
                     safe_description = clean_html_text(description)
                     safe_category = clean_html_text(category_name)
@@ -124,52 +113,64 @@ def check_freelancehunt_loop():
                         f"<blockquote>{safe_description}</blockquote>"
                     )
                     
-                    # Прямая ссылка на блок ставки на сайте Freelancehunt
                     bid_url = f"{entry.link}#make-bid"
                     
                     send_telegram_message_with_two_buttons(
-                        text=message, 
-                        b1_text="🔎 Открыть", 
-                        b1_url=entry.link,
-                        b2_text="💰 Сделать ставку",
-                        b2_url=bid_url
+                        text=message, b1_text="🔎 Открыть", b1_url=entry.link, b2_text="💰 Сделать ставку", b2_url=bid_url
                     )
         except Exception as e:
             print(f"Ошибка во Freelancehunt: {e}")
             
         time.sleep(FH_INTERVAL)
 
-# --- МОНИТОРИНГ КАБАНЧИКА ---
+# --- УЛУЧШЕННЫЙ МОНИТОРИНГ КАБАНЧИКА ---
 def check_kabanchik_loop():
-    print("Запущена служба Kabanchik.ua.")
+    print("Запущена обновленная служба Kabanchik.ua.")
+    
+    # Юзер-агент посвежее, чтобы сайт не думал, что мы старый бот
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7"
     }
+    
     while True:
         try:
             is_first_run = len(kabanchik_sent_tasks) == 0
             
             for url in KABANCHIK_URLS:
-                # Извлекаем категорию Кабанчика из самого URL для наглядности
                 raw_cat = url.split('/')[-1]
                 category_name = "AI Послуги" if "ai-poslugi" in raw_cat else "Фото и Видео" if "foto" in raw_cat else "Дизайн"
                 
-                print(f"Проверяю категорию Кабанчика: {raw_cat}")
-                response = requests.get(url, headers=headers)
+                print(f"Проверяю Кабанчик: {raw_cat}...")
+                response = requests.get(url, headers=headers, timeout=15)
                 
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, "html.parser")
                     
-                    tasks = soup.find_all("div", class_="task-card")
+                    # Ищем карточки всеми возможными способами (новые классы + старые + общие теги списков)
+                    tasks = soup.find_all("div", class_=["task-card", "b-task-item"])
                     if not tasks:
-                        tasks = soup.find_all("li", class_="b-task-item")
-                        
+                        tasks = soup.find_all("li", class_=["b-task-item", "task-card"])
+                    if not tasks:
+                        # Резервный вариант: ищем блоки, у которых внутри есть ссылки на новые задачи
+                        tasks = [a.find_parent("div") for a in soup.find_all("a", href=True) if "/tasks/" in a['href'] or "/work/" in a['href']]
+                        # Очищаем от пустых элементов (None) и дубликатов
+                        tasks = list(filter(None, set(tasks)))
+
                     for task in reversed(tasks):
-                        link_tag = task.find("a", href=True)
+                        # Ищем ссылку на задачу
+                        link_tag = task.find("a", href=True) if hasattr(task, 'find') else None
+                        if not link_tag and hasattr(task, 'name') and task.name == 'a':
+                            link_tag = task
+                            
                         if not link_tag: 
                             continue
                             
                         href = link_tag['href'].strip()
+                        
+                        # Проверяем, что это ссылка именно на страницу конкретного заказа
+                        if not ("/tasks/" in href or "/work/" in href or "kabanchik.ua" in href):
+                            continue
                         
                         if href.startswith("http"):
                             task_link = href
@@ -178,7 +179,11 @@ def check_kabanchik_loop():
                                 href = "/" + href
                             task_link = "https://kabanchik.ua" + href
                         
-                        task_id = task_link.split("-")[-1].replace("/", "")
+                        # Вытягиваем ID заказа из ссылки
+                        try:
+                            task_id = task_link.split("-")[-1].replace("/", "").split("?")[0]
+                        except:
+                            task_id = task_link
                         
                         if task_id not in kabanchik_sent_tasks:
                             kabanchik_sent_tasks.add(task_id)
@@ -186,10 +191,14 @@ def check_kabanchik_loop():
                             if is_first_run: 
                                 continue
                             
-                            title_tag = task.find(["a", "span"], class_=["task-card__title", "b-task-item__title"])
-                            title = title_tag.get_text(strip=True) if title_tag else "Новый заказ"
+                            # Ищем заголовок заказа
+                            title_tag = task.find(["a", "span", "p", "div"], class_=["task-card__title", "b-task-item__title", "task-title"])
+                            title = title_tag.get_text(strip=True) if title_tag else link_tag.get_text(strip=True)
+                            if not title or len(title) < 5:
+                                title = "Новый заказ на Кабанчике"
                             
-                            price_tag = task.find("span", class_=["task-card__price", "b-task-item__price"])
+                            # Ищем цену заказа
+                            price_tag = task.find("span", class_=["task-card__price", "b-task-item__price", "task-price"])
                             price = price_tag.get_text(strip=True) if price_tag else "Бюджет не указан"
                             
                             safe_title = clean_html_text(title)
@@ -204,18 +213,13 @@ def check_kabanchik_loop():
                                 f"💰 <b>Бюджет:</b> <code>{safe_price}</code>"
                             )
                             
-                            # Для Кабанчика тоже делаем две аккуратные кнопки
                             send_telegram_message_with_two_buttons(
-                                text=message, 
-                                b1_text="🔎 Открыть", 
-                                b1_url=task_link,
-                                b2_text="🤝 Откликнуться",
-                                b2_url=task_link
+                                text=message, b1_text="🔎 Открыть", b1_url=task_link, b2_text="🤝 Откликнуться", b2_url=task_link
                             )
                 else:
-                    print(f"Кабанчик ответил ошибкой {response.status_code} для ссылки: {url}")
+                    print(f"Кабанчик ответил кодом {response.status_code}")
                 
-                time.sleep(2)
+                time.sleep(3) # Небольшая пауза, чтобы сайт нас не банил
                 
         except Exception as e:
             print(f"Ошибка в модуле Кабанчика: {e}")
