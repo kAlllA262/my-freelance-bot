@@ -10,6 +10,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
+PORT = int(os.environ.get("PORT", 10000))
 
 FH_RSS_URL = "https://freelancehunt.com/projects.rss?skills%5B%5D=113&skills%5B%5D=192&skills%5B%5D=144&skills%5B%5D=101&skills%5B%5D=18&skills%5B%5D=91"
 FH_INTERVAL = 60
@@ -26,18 +27,14 @@ CONFIG_FILE = "config.json"
 class HealthCheckServer(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
-        self.send_header("Content-type", "text/html")
+        self.send_header("Content-type", "text/plain; charset=utf-8")
         self.end_headers()
-        self.wfile.write(b"Combo Multi-Category Bot is running")
-    def do_HEAD(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/html")
-        self.end_headers()
+        self.wfile.write(b"Bot is running")
     def log_message(self, format, *args):
         return
 
 def run_web_server():
-    server = HTTPServer(("0.0.0.0", 10000), HealthCheckServer)
+    server = HTTPServer(("0.0.0.0", PORT), HealthCheckServer)
     server.serve_forever()
 
 fh_sent_projects = set()
