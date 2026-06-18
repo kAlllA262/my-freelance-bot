@@ -210,9 +210,7 @@ def create_settings_keyboard():
                 {"text": "🔍 Ключевые слова", "callback_data": "open_keywords"}
             ],
             [
-                {"text": "📁 Freelancehunt", "callback_data": "show_fh_categories"}
-            ],
-            [
+                {"text": "📁 Freelancehunt", "callback_data": "show_fh_categories"},
                 {"text": "📁 Kabanchik", "callback_data": "show_kb_categories"}
             ],
             [
@@ -472,7 +470,6 @@ def setup_bot_menu():
     telegram_api("setMyCommands", {
         "commands": [
             {"command": "start", "description": "🏠 Главное меню"},
-            {"command": "menu", "description": "🏠 Открыть меню"},
             {"command": "settings", "description": "⚙️ Настройки"},
             {"command": "status", "description": "📊 Статус бота"},
             {"command": "help", "description": "❓ Помощь"}
@@ -617,7 +614,7 @@ def handle_updates():
                     message = u["message"]
                     text = message.get("text", "").strip()
 
-                    if text == "/start" or text == "/menu":
+                    if text == "/start":
                         send_telegram_message("🏠 <b>ГЛАВНОЕ МЕНЮ</b>\n\nВыберите действие:", create_main_keyboard())
                     elif text == "/settings":
                         send_telegram_message("⚙️ <b>Настройки</b>", create_settings_keyboard())
@@ -817,20 +814,4 @@ def main():
     if GEMINI_API_KEY:
         print("✅ GEMINI_API_KEY найден! AI-ответы будут генерироваться ПО НАЖАТИЮ.")
     else:
-        print("⚠️ GEMINI_API_KEY не задан! AI-ответы будут ШАБЛОННЫМИ.")
-
-    ensure_config_exists()
-    setup_bot_menu()
-
-    Thread(target=run_web_server, daemon=True).start()
-    Thread(target=monitor_freelancehunt, daemon=True).start()
-    Thread(target=monitor_kabanchik, daemon=True).start()
-    Thread(target=handle_updates, daemon=True).start()
-
-    print("Все потоки запущены. Ожидание...")
-    while True:
-        time.sleep(60)
-
-
-if __name__ == "__main__":
-    main()
+        print("⚠️ GEMINI_API_KEY не зада
