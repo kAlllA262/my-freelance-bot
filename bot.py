@@ -8,10 +8,6 @@ from bs4 import BeautifulSoup
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# Простой переводчик без внешних библиотек
-def translate_to_russian(text):
-    return text
-    
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 PORT = int(os.environ.get("PORT", 10000))
@@ -276,6 +272,12 @@ def extract_budget_and_currency(text):
         except:
             return None, ""
     return None, ""
+
+
+def translate_to_russian(text):
+    # Простой переводчик - возвращаем текст как есть
+    return text
+
 
 def is_russian_or_ukrainian(text):
     if not text:
@@ -634,6 +636,13 @@ def monitor_kabanchik():
 
 
 def main():
+    # Очищаем вебхук, чтобы избежать 409 Conflict
+    try:
+        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
+        print("DEBUG: Webhook удален")
+    except Exception as e:
+        print(f"DEBUG: Ошибка удаления webhook: {e}")
+    
     print("Бот запускается...")
     if not BOT_TOKEN or not CHAT_ID:
         print("DEBUG: BOT_TOKEN или CHAT_ID не заданы")
