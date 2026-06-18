@@ -12,7 +12,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 PORT = int(os.environ.get("PORT", 10000))
 
-# 🔑 API-ключ Gemini (добавь в Environment Variables на Render)
+# 🔑 API-ключ Gemini
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # Категории Freelancehunt
@@ -40,7 +40,7 @@ CONFIG_FILE = "config.json"
 
 fh_sent_projects = set()
 kabanchik_sent_tasks = set()
-last_ai_request_time = 0  # Для контроля частоты запросов
+pending_orders = {}
 
 
 class HealthCheckServer(BaseHTTPRequestHandler):
@@ -90,13 +90,55 @@ def get_default_config():
             },
             "min_budget": 0,
             "keywords": [
-                "ai", "нейросеть", "генерация фото", "генерация видео",
-                "искусственный интеллект",
-                "midjourney", "генерация персонажа", "анимация персонажа",
-                "ai видео", "голосовой аватар",
-                "видео с ии", "монтаж", "видеомонтаж", "видео реклама",
-                "озвучка", "диктор", "голос", "аудио", "звук",
-                "музыка", "фото", "ретушь"
+                # --- МОНТАЖ ---
+                "монтаж",
+                "видеомонтаж",
+                "монтаж видео",
+                "нарезка",
+                "склейка",
+                "редактирование видео",
+                # --- РЕКЛАМА ---
+                "рекламный ролик",
+                "видеореклама",
+                "промо",
+                "динамичный ролик",
+                "реклама для соцсетей",
+                "рекламное видео",
+                # --- YOUTUBE ---
+                "youtube видео",
+                "ютуб",
+                "youtube монтаж",
+                "ютуб монтаж",
+                "видео для youtube",
+                "youtube шортс",
+                # --- AI-ГЕНЕРАЦИЯ ---
+                "ai видео",
+                "генерация видео",
+                "нейросеть",
+                "sora",
+                "midjourney",
+                "генерация фото",
+                "ai фото",
+                "ai реклама",
+                "реклама с ии",
+                "ai фильм",
+                "короткометражка",
+                "ai кино",
+                # --- ПРОГРАММЫ И ОБРАБОТКА ---
+                "davinci resolve",
+                "цветокоррекция",
+                "color grading",
+                "постпродакшн",
+                "color correction",
+                "визуальные эффекты",
+                "vfx",
+                # --- ДОПОЛНИТЕЛЬНО ---
+                "motion",
+                "анимация",
+                "динамичный",
+                "монтаж reels",
+                "обработка видео",
+                "ретушь"
             ]
         },
         "kabanchik": {
@@ -159,26 +201,15 @@ def send_telegram_message(text, reply_markup=None):
     return telegram_api("sendMessage", payload)
 
 
-def send_telegram_message_with_ai_button(text, button_url, ai_text):
-    """
-    Отправляет сообщение с двумя кнопками:
-    - 🔗 Открыть (ссылка)
-    - 🤖 AI ответ (копирует текст в буфер обмена)
-    """
+def send_telegram_message_with_ai_button(text, button_url, project_id):
     if not BOT_TOKEN or not CHAT_ID:
         return None
 
-    # Обрезаем AI-ответ до 250 символов (максимум 256)
-    ai_text_short = ai_text[:250]
-    
     keyboard = {
         "inline_keyboard": [
             [
                 {"text": "🔗 Открыть", "url": button_url.strip()},
-                {
-                    "text": "🤖 AI ответ",
-                    "copy_text": {"text": ai_text_short}
-                }
+                {"text": "🤖 AI ответ", "callback_data": f"ai_{project_id}"}
             ]
         ]
     }
@@ -251,20 +282,20 @@ def create_keywords_keyboard():
     return {
         "inline_keyboard": [
             [
-                {"text": "AI", "callback_data": "kw_ai"},
-                {"text": "Roblox", "callback_data": "kw_roblox"}
-            ],
-            [
-                {"text": "Аватар", "callback_data": "kw_avatar"},
-                {"text": "Генерация", "callback_data": "kw_generation"}
-            ],
-            [
-                {"text": "Нейросеть", "callback_data": "kw_neiro"},
-                {"text": "Sora", "callback_data": "kw_sora"}
-            ],
-            [
                 {"text": "Монтаж", "callback_data": "kw_montage"},
-                {"text": "Озвучка", "callback_data": "kw_voice"}
+                {"text": "AI видео", "callback_data": "kw_ai_video"}
+            ],
+            [
+                {"text": "Реклама", "callback_data": "kw_ads"},
+                {"text": "YouTube", "callback_data": "kw_youtube"}
+            ],
+            [
+                {"text": "AI реклама", "callback_data": "kw_ai_ads"},
+                {"text": "AI фильм", "callback_data": "kw_ai_film"}
+            ],
+            [
+                {"text": "DaVinci", "callback_data": "kw_davinci"},
+                {"text": "Цветокор", "callback_data": "kw_color"}
             ],
             [
                 {"text": "⬅️ Назад", "callback_data": "back_to_settings"}
@@ -349,10 +380,10 @@ def detect_fh_category(text):
         "AI создание видео": ["ai", "нейросеть", "генерация видео", "создать видео ии", "sora", "midjourney", "искусственный интеллект", "генерация", "роблокс", "roblox", "аватар"],
         "Анимация": ["анимация", "motion", "2d", "3d", "after effects", "moho", "анимация персонажа"],
         "Аудио/видео монтаж": ["монтаж", "видеомонтаж", "нарезка", "склейка", "редактирование видео"],
-        "Видео реклама": ["реклама", "рекламный ролик", "promo", "promotional", "reels", "ads"],
+        "Видео реклама": ["рекламный ролик", "видеореклама", "промо", "реклама для соцсетей", "рекламное видео", "динамичный ролик", "promo", "reels", "ролик"],
         "Обработка аудио": ["аудио", "звук", "обработка звука", "звукорежиссер", "очистка звука", "запись голоса", "музыка", "озвучка", "диктор", "голос"],
-        "Обработка видео": ["обработка видео", "цветокор", "post production", "color correction"],
-        "Обработка фото": ["фото", "ретушь", "обработка фото", "photoshop"],
+        "Обработка видео": ["обработка видео", "цветокор", "post production", "color correction", "color grading", "davinci resolve", "визуальные эффекты", "vfx"],
+        "Обработка фото": ["обработка фото", "ретушь", "photoshop", "ai фото", "генерация фото"],
         "Услуги диктора": ["диктор", "озвучка", "голос", "voice over", "voiceover", "закадровый голос", "профессиональный голос", "озвучивание"]
     }
 
@@ -416,30 +447,12 @@ def format_kabanchik_message(title, category, description="Описание на
 
 
 def generate_ai_response(project_title, project_description, project_category):
-    """
-    Генерирует УНИКАЛЬНЫЙ AI-ответ для каждого заказа с помощью Gemini
-    """
     if not GEMINI_API_KEY:
-        # Если ключа нет — возвращаем шаблонный ответ
         return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
 
-Я специализируюсь в области {project_category} и имею успешный опыт в подобных проектах.
+Я специализируюсь в области {project_category} и имею успешный опыт.
 
-Могу предложить:
-• Качественное выполнение работы в указанные сроки
-• Профессиональный подход
-• Готовность к правкам
-
-Буду рад обсудить детали и стоимость. Жду вашего ответа!"""
-    
-    global last_ai_request_time
-    
-    # Ждём минимум 1.2 секунды между запросами (безопасно для Gemini)
-    time_since_last = time.time() - last_ai_request_time
-    if time_since_last < 1.2:
-        time.sleep(1.2 - time_since_last)
-    
-    last_ai_request_time = time.time()
+Жду вашего ответа для обсуждения деталей!"""
     
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
@@ -469,21 +482,12 @@ def generate_ai_response(project_title, project_description, project_category):
         
         response = requests.post(url, json=payload, timeout=30)
         
-        if response.status_code == 429:
-            print("DEBUG: Gemini 429 - превышен лимит, возвращаем шаблон")
-            return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
-
-Я специализируюсь в области {project_category} и имею опыт в таких проектах.
-
-Готов обсудить детали и стоимость. Жду вашего ответа!"""
-        
         if response.status_code == 200:
             data = response.json()
             ai_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
             if ai_text:
                 return ai_text.strip()
         
-        # Если ошибка — возвращаем шаблон
         print(f"DEBUG: Gemini error: {response.status_code}")
         return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
 
@@ -538,9 +542,11 @@ def parse_freelancehunt():
                 category = detect_fh_category(text_for_filter)
                 fh_sent_projects.add(project_id)
 
-                # 🧠 Генерируем УНИКАЛЬНЫЙ AI-ответ для этого заказа
-                ai_response = generate_ai_response(title, summary, category)
-                print(f"DEBUG: AI-ответ сгенерирован для: {title[:30]}...")
+                pending_orders[project_id] = {
+                    "title": title,
+                    "description": summary,
+                    "category": category
+                }
 
                 message_text = format_freelancehunt_message(
                     title, summary, category, budget, currency
@@ -549,7 +555,7 @@ def parse_freelancehunt():
                 send_telegram_message_with_ai_button(
                     message_text,
                     link,
-                    ai_response
+                    project_id
                 )
         except Exception as e:
             print(f"DEBUG: parse_freelancehunt error for {category_name}: {e}")
@@ -560,7 +566,12 @@ def parse_kabanchik():
 
     try:
         for url in KABANCHIK_URLS:
-            response = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+            try:
+                response = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+            except requests.exceptions.Timeout:
+                print(f"DEBUG: Kabanchik timeout for {url}")
+                continue
+                
             if response.status_code != 200:
                 continue
 
@@ -596,9 +607,11 @@ def parse_kabanchik():
 
                 kabanchik_sent_tasks.add(full_link)
 
-                # 🧠 Генерируем УНИКАЛЬНЫЙ AI-ответ для этого заказа
-                ai_response = generate_ai_response(title, "Описание на сайте", category)
-                print(f"DEBUG: AI-ответ сгенерирован для Kabanchik: {title[:30]}...")
+                pending_orders[full_link] = {
+                    "title": title,
+                    "description": "Описание на сайте Kabanchik",
+                    "category": category
+                }
 
                 message_text = format_kabanchik_message(
                     title, category, "Описание на сайте", None, ""
@@ -607,7 +620,7 @@ def parse_kabanchik():
                 send_telegram_message_with_ai_button(
                     message_text,
                     full_link,
-                    ai_response
+                    full_link
                 )
     except Exception as e:
         print(f"DEBUG: parse_kabanchik error: {e}")
@@ -664,10 +677,55 @@ def handle_updates():
                     data = cb["data"]
                     cid = cb["id"]
                     chat_id = cb["message"]["chat"]["id"]
-                    message_id = cb["message"]["message_id"]
                     config = ensure_config_exists()
 
-                    if data == "open_settings":
+                    if data.startswith("ai_"):
+                        project_id = data.replace("ai_", "")
+                        
+                        if project_id in pending_orders:
+                            order = pending_orders[project_id]
+                            
+                            telegram_api("answerCallbackQuery", {
+                                "callback_query_id": cid,
+                                "text": "🧠 Генерирую AI-ответ...",
+                                "show_alert": False
+                            })
+                            
+                            ai_text = generate_ai_response(
+                                order["title"],
+                                order["description"],
+                                order["category"]
+                            )
+                            
+                            ai_text_short = ai_text[:250]
+                            
+                            send_telegram_message(
+                                f"🤖 <b>AI-ответ для заказа:</b>\n\n{ai_text}",
+                                {
+                                    "inline_keyboard": [
+                                        [
+                                            {
+                                                "text": "📋 Скопировать в буфер",
+                                                "copy_text": {"text": ai_text_short}
+                                            }
+                                        ]
+                                    ]
+                                }
+                            )
+                            
+                            telegram_api("answerCallbackQuery", {
+                                "callback_query_id": cid,
+                                "text": "✅ AI-ответ готов! Нажми кнопку для копирования",
+                                "show_alert": False
+                            })
+                        else:
+                            telegram_api("answerCallbackQuery", {
+                                "callback_query_id": cid,
+                                "text": "❌ Данные по заказу не найдены",
+                                "show_alert": True
+                            })
+
+                    elif data == "open_settings":
                         send_telegram_message(get_settings_text(config), create_settings_keyboard())
 
                     elif data == "open_budget":
@@ -702,14 +760,14 @@ def handle_updates():
 
                     elif data.startswith("kw_"):
                         keyword_map = {
-                            "kw_ai": "ai",
-                            "kw_roblox": "roblox",
-                            "kw_avatar": "аватар",
-                            "kw_generation": "генерация",
-                            "kw_neiro": "нейросеть",
-                            "kw_sora": "sora",
                             "kw_montage": "монтаж",
-                            "kw_voice": "озвучка"
+                            "kw_ai_video": "ai видео",
+                            "kw_ads": "реклама",
+                            "kw_youtube": "youtube видео",
+                            "kw_ai_ads": "ai реклама",
+                            "kw_ai_film": "ai фильм",
+                            "kw_davinci": "davinci resolve",
+                            "kw_color": "цветокоррекция"
                         }
                         keyword = keyword_map.get(data)
                         if keyword:
@@ -754,7 +812,7 @@ def handle_updates():
                     elif data == "close_settings":
                         telegram_api("deleteMessage", {
                             "chat_id": chat_id,
-                            "message_id": message_id
+                            "message_id": cb["message"]["message_id"]
                         })
                         telegram_api("answerCallbackQuery", {
                             "callback_query_id": cid,
@@ -790,10 +848,9 @@ def main():
         return
 
     if GEMINI_API_KEY:
-        print("✅ GEMINI_API_KEY найден! AI-ответы будут УНИКАЛЬНЫМИ для каждого заказа.")
+        print("✅ GEMINI_API_KEY найден! AI-ответы будут генерироваться ПО НАЖАТИЮ.")
     else:
-        print("⚠️ GEMINI_API_KEY не задан! AI-ответы будут ШАБЛОННЫМИ (одинаковыми).")
-        print("   Получи ключ на https://aistudio.google.com/")
+        print("⚠️ GEMINI_API_KEY не задан! AI-ответы будут ШАБЛОННЫМИ.")
 
     ensure_config_exists()
     setup_bot_menu()
