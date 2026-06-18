@@ -12,7 +12,18 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 PORT = int(os.environ.get("PORT", 10000))
 
-FH_RSS_URL = "https://freelancehunt.com/projects.rss?skills%5B%5D=113&skills%5B%5D=192&skills%5B%5D=144&skills%5B%5D=101&skills%5B%5D=18&skills%5B%5D=91"
+# НОВЫЕ КАТЕГОРИИ (ТОЛЬКО ТЕ, ЧТО ТЫ УКАЗАЛ)
+FH_CATEGORIES = {
+    "ai_video": "https://freelancehunt.com/projects.rss?skills%5B%5D=192",      # AI создание видео
+    "animation": "https://freelancehunt.com/projects.rss?skills%5B%5D=91",       # Анимация
+    "video_audio": "https://freelancehunt.com/projects.rss?skills%5B%5D=113",    # Аудио/видео монтаж
+    "video_ads": "https://freelancehunt.com/projects.rss?skills%5B%5D=144",      # Видео реклама
+    "audio_processing": "https://freelancehunt.com/projects.rss?skills%5B%5D=102", # Обработка аудио
+    "video_processing": "https://freelancehunt.com/projects.rss?skills%5B%5D=101", # Обработка видео
+    "photo_processing": "https://freelancehunt.com/projects.rss?skills%5B%5D=18",  # Обработка фото
+    "voice_over": "https://freelancehunt.com/projects.rss?skills%5B%5D=143",     # Услуги диктора
+}
+
 FH_INTERVAL = 60
 
 KABANCHIK_URLS = [
@@ -66,15 +77,47 @@ def get_default_config():
     return {
         "freelancehunt": {
             "categories": {
-                "Аудио/видео монтаж": True,
                 "AI создание видео": True,
+                "Анимация": True,
+                "Аудио/видео монтаж": True,
                 "Видео реклама": True,
+                "Обработка аудио": True,
                 "Обработка видео": True,
                 "Обработка фото": True,
-                "Анимация": True
+                "Услуги диктора": True
             },
             "min_budget": 0,
-            "keywords": ["видео", "монтаж", "AI", "анимация", "реклама"]
+            "keywords": [
+                "ai",
+                "нейросеть",
+                "генерация",
+                "генерация видео",
+                "искусственный интеллект",
+                "роблокс",
+                "roblox",
+                "аватар",
+                "персонаж",
+                "видео с аватаром",
+                "sora",
+                "midjourney",
+                "генерация персонажа",
+                "анимация персонажа",
+                "ai видео",
+                "голосовой аватар",
+                "говорящий аватар",
+                "видео с ии",
+                "монтаж",
+                "видеомонтаж",
+                "реклама",
+                "озвучка",
+                "диктор",
+                "голос",
+                "аудио",
+                "звук",
+                "музыка",
+                "фото",
+                "ретушь"
+            ]
         },
         "kabanchik": {
             "categories": {
@@ -214,16 +257,20 @@ def create_keywords_keyboard():
     return {
         "inline_keyboard": [
             [
-                {"text": "Видео", "callback_data": "kw_video"},
-                {"text": "Монтаж", "callback_data": "kw_edit"}
-            ],
-            [
                 {"text": "AI", "callback_data": "kw_ai"},
-                {"text": "Анимация", "callback_data": "kw_anim"}
+                {"text": "Roblox", "callback_data": "kw_roblox"}
             ],
             [
-                {"text": "Реклама", "callback_data": "kw_ads"},
-                {"text": "Фото", "callback_data": "kw_photo"}
+                {"text": "Аватар", "callback_data": "kw_avatar"},
+                {"text": "Генерация", "callback_data": "kw_generation"}
+            ],
+            [
+                {"text": "Нейросеть", "callback_data": "kw_neiro"},
+                {"text": "Sora", "callback_data": "kw_sora"}
+            ],
+            [
+                {"text": "Монтаж", "callback_data": "kw_montage"},
+                {"text": "Озвучка", "callback_data": "kw_voice"}
             ],
             [
                 {"text": "⬅️ Назад", "callback_data": "back_to_settings"}
@@ -275,7 +322,6 @@ def extract_budget_and_currency(text):
 
 
 def translate_to_russian(text):
-    # Простой переводчик - возвращаем текст как есть
     return text
 
 
@@ -306,12 +352,14 @@ def matches_keywords(text, keywords):
 def detect_fh_category(text):
     text_low = text.lower()
     category_map = {
+        "AI создание видео": ["ai", "нейросеть", "генерация видео", "создать видео ии", "sora", "midjourney", "искусственный интеллект", "генерация", "роблокс", "roblox", "аватар"],
+        "Анимация": ["анимация", "motion", "2d", "3d", "after effects", "moho", "анимация персонажа"],
         "Аудио/видео монтаж": ["монтаж", "видеомонтаж", "нарезка", "склейка", "редактирование видео"],
-        "AI создание видео": ["ai", "нейросеть", "генерация видео", "создать видео ии", "sora", "midjourney"],
         "Видео реклама": ["реклама", "рекламный ролик", "promo", "promotional", "reels", "ads"],
+        "Обработка аудио": ["аудио", "звук", "обработка звука", "звукорежиссер", "очистка звука", "запись голоса", "музыка", "озвучка", "диктор", "голос"],
         "Обработка видео": ["обработка видео", "цветокор", "post production", "color correction"],
         "Обработка фото": ["фото", "ретушь", "обработка фото", "photoshop"],
-        "Анимация": ["анимация", "motion", "2d", "3d", "after effects", "moho"]
+        "Услуги диктора": ["диктор", "озвучка", "голос", "voice over", "voiceover", "закадровый голос", "профессиональный голос", "озвучивание"]
     }
 
     for category, words in category_map.items():
@@ -384,36 +432,40 @@ def parse_freelancehunt():
     enabled_keywords = config["freelancehunt"]["keywords"]
     min_budget = config["freelancehunt"]["min_budget"]
 
-    try:
-        feed = feedparser.parse(FH_RSS_URL)
-        for entry in feed.entries:
-            title = getattr(entry, "title", "")
-            link = getattr(entry, "link", "")
-            summary = getattr(entry, "summary", "")
-            project_id = link or title
+    # Парсим КАЖДУЮ категорию отдельно
+    for category_name, category_url in FH_CATEGORIES.items():
+        try:
+            print(f"DEBUG: Парсинг категории: {category_name}")
+            feed = feedparser.parse(category_url)
+            
+            for entry in feed.entries:
+                title = getattr(entry, "title", "")
+                link = getattr(entry, "link", "")
+                summary = getattr(entry, "summary", "")
+                project_id = link or title
 
-            if project_id in fh_sent_projects:
-                continue
+                if project_id in fh_sent_projects:
+                    continue
 
-            text_for_filter = f"{title} {summary}"
-            budget, currency = extract_budget_and_currency(text_for_filter)
+                text_for_filter = f"{title} {summary}"
+                budget, currency = extract_budget_and_currency(text_for_filter)
 
-            if min_budget and budget is not None and budget < min_budget:
-                continue
+                if min_budget and budget is not None and budget < min_budget:
+                    continue
 
-            if enabled_keywords and not matches_keywords(text_for_filter, enabled_keywords):
-                continue
+                if enabled_keywords and not matches_keywords(text_for_filter, enabled_keywords):
+                    continue
 
-            category = detect_fh_category(text_for_filter)
-            fh_sent_projects.add(project_id)
+                category = detect_fh_category(text_for_filter)
+                fh_sent_projects.add(project_id)
 
-            send_telegram_message_with_button(
-                format_freelancehunt_message(title, summary, category, budget, currency),
-                "🔗 Открыть проект",
-                link
-            )
-    except Exception as e:
-        print(f"DEBUG: parse_freelancehunt error: {e}")
+                send_telegram_message_with_button(
+                    format_freelancehunt_message(title, summary, category, budget, currency),
+                    "🔗 Открыть проект",
+                    link
+                )
+        except Exception as e:
+            print(f"DEBUG: parse_freelancehunt error for {category_name}: {e}")
 
 
 def parse_kabanchik():
@@ -559,12 +611,14 @@ def handle_updates():
 
                     elif data.startswith("kw_"):
                         keyword_map = {
-                            "kw_video": "видео",
-                            "kw_edit": "монтаж",
-                            "kw_ai": "AI",
-                            "kw_anim": "анимация",
-                            "kw_ads": "реклама",
-                            "kw_photo": "фото"
+                            "kw_ai": "ai",
+                            "kw_roblox": "roblox",
+                            "kw_avatar": "аватар",
+                            "kw_generation": "генерация",
+                            "kw_neiro": "нейросеть",
+                            "kw_sora": "sora",
+                            "kw_montage": "монтаж",
+                            "kw_voice": "озвучка"
                         }
                         keyword = keyword_map.get(data)
                         if keyword:
