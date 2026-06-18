@@ -685,13 +685,40 @@ def handle_updates():
                             })
 
                     elif data == "open_settings":
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
                         send_telegram_message("⚙️ <b>Настройки</b>", create_settings_keyboard())
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "⚙️ Настройки",
+                            "show_alert": False
+                        })
 
                     elif data == "open_budget":
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
                         send_telegram_message("💰 <b>Выберите минимальный бюджет:</b>", create_budget_keyboard())
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "💰 Бюджет",
+                            "show_alert": False
+                        })
 
                     elif data == "open_keywords":
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
                         send_telegram_message("🔍 <b>Выберите ключевое слово:</b>", create_keywords_keyboard())
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "🔍 Ключевые слова",
+                            "show_alert": False
+                        })
 
                     elif data == "back_to_settings":
                         telegram_api("deleteMessage", {
@@ -706,18 +733,40 @@ def handle_updates():
                         })
 
                     elif data == "show_fh_categories":
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
                         text = "📁 <b>Freelancehunt категории:</b>\n\n"
                         for cat, enabled in config["freelancehunt"]["categories"].items():
                             text += f"{'✅' if enabled else '❌'} {cat}\n"
                         send_telegram_message(text, create_settings_keyboard())
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "📁 Freelancehunt",
+                            "show_alert": False
+                        })
 
                     elif data == "show_kb_categories":
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
                         text = "📁 <b>Kabanchik категории:</b>\n\n"
                         for cat, enabled in config["kabanchik"]["categories"].items():
                             text += f"{'✅' if enabled else '❌'} {cat}\n"
                         send_telegram_message(text, create_settings_keyboard())
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "📁 Kabanchik",
+                            "show_alert": False
+                        })
 
                     elif data.startswith("budget_"):
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
                         budget = int(data.replace("budget_", ""))
                         config["freelancehunt"]["min_budget"] = budget
                         save_config(config)
@@ -725,8 +774,17 @@ def handle_updates():
                             f"✅ Минимальный бюджет установлен: ${budget}",
                             create_settings_keyboard()
                         )
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": f"✅ Бюджет ${budget}",
+                            "show_alert": False
+                        })
 
                     elif data.startswith("kw_"):
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
                         keyword_map = {
                             "kw_montage": "монтаж",
                             "kw_ai_video": "ai видео",
@@ -749,11 +807,25 @@ def handle_updates():
                             config["freelancehunt"]["keywords"] = keywords
                             save_config(config)
                             send_telegram_message(msg, create_settings_keyboard())
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "✅ Готово",
+                            "show_alert": False
+                        })
 
                     elif data == "reset_config":
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
                         config = get_default_config()
                         save_config(config)
                         send_telegram_message("🔄 Настройки сброшены", create_settings_keyboard())
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "🔄 Сброшено",
+                            "show_alert": False
+                        })
 
                     elif data == "bot_status":
                         send_telegram_message("✅ <b>БОТ РАБОТАЕТ</b>")
@@ -772,6 +844,11 @@ def handle_updates():
                             "🔄 Перезапуск",
                             create_main_keyboard()
                         )
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "❓ Help",
+                            "show_alert": False
+                        })
 
                     elif data == "bot_restart":
                         send_telegram_message("🔄 Перезапуск...", create_main_keyboard())
