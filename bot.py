@@ -628,13 +628,7 @@ def handle_updates():
                             create_main_keyboard()
                         )
                     elif text == "/status":
-                        config = ensure_config_exists()
-                        send_telegram_message(
-                            f"✅ <b>БОТ РАБОТАЕТ</b>\n\n"
-                            f"💰 Бюджет: ${config['freelancehunt']['min_budget']}\n"
-                            f"🔍 Ключевые слова: {', '.join(config['freelancehunt']['keywords'])}",
-                            create_main_keyboard()
-                        )
+                        send_telegram_message("✅ <b>БОТ РАБОТАЕТ</b>")
 
                 elif "callback_query" in u:
                     cb = u["callback_query"]
@@ -700,12 +694,10 @@ def handle_updates():
                         send_telegram_message("🔍 <b>Выберите ключевое слово:</b>", create_keywords_keyboard())
 
                     elif data == "back_to_settings":
-                        # Удаляем текущее сообщение
                         telegram_api("deleteMessage", {
                             "chat_id": chat_id,
                             "message_id": message_id
                         })
-                        # Отправляем настройки
                         send_telegram_message("⚙️ <b>Настройки</b>", create_settings_keyboard())
                         telegram_api("answerCallbackQuery", {
                             "callback_query_id": cid,
@@ -764,12 +756,12 @@ def handle_updates():
                         send_telegram_message("🔄 Настройки сброшены", create_settings_keyboard())
 
                     elif data == "bot_status":
-                        send_telegram_message(
-                            f"✅ <b>БОТ РАБОТАЕТ</b>\n\n"
-                            f"💰 Бюджет: ${config['freelancehunt']['min_budget']}\n"
-                            f"🔍 Ключевые слова: {', '.join(config['freelancehunt']['keywords'])}",
-                            create_main_keyboard()
-                        )
+                        send_telegram_message("✅ <b>БОТ РАБОТАЕТ</b>")
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "📊 Статус бота",
+                            "show_alert": False
+                        })
 
                     elif data == "bot_help":
                         send_telegram_message(
