@@ -40,6 +40,23 @@ fh_sent_projects = set()
 kabanchik_sent_tasks = set()
 pending_orders = {}
 
+# Статистика
+stats = {
+    "orders_found": 0,
+    "orders_sent": 0,
+    "ai_generated": 0,
+    "start_time": time.time()
+}
+
+# Ошибки
+errors = {
+    "freelancehunt": 0,
+    "kabanchik": 0,
+    "gemini": 0,
+    "telegram": 0,
+    "last_errors": []
+}
+
 
 class HealthCheckServer(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -120,7 +137,7 @@ def load_config():
                 return json.load(f)
     except Exception as e:
         print(f"DEBUG: load_config error: {e}")
-    return None
+        return None
 
 
 def save_config(config):
@@ -160,7 +177,13 @@ def send_telegram_message(text, reply_markup=None):
     if reply_markup:
         payload["reply_markup"] = reply_markup
 
-    return telegram_api("sendMessage", payload)
+    result = telegram_api("sendMessage", payload)
+    if result is None:
+        errors["telegram"] += 1
+        errors["last_errors"].append(f"Telegram: {time.strftime('%H:%M')} - не удалось отправить сообщение")
+        if len(errors["last_errors"]) > 10:
+            errors["last_errors"] = errors["last_errors"][-10:]
+    return result
 
 
 def send_telegram_message_with_ai_button(text, button_url, project_id):
@@ -182,7 +205,11 @@ def send_telegram_message_with_ai_button(text, button_url, project_id):
         "parse_mode": "HTML",
         "reply_markup": keyboard
     }
-    return telegram_api("sendMessage", payload)
+    result = telegram_api("sendMessage", payload)
+    if result is None:
+        errors["telegram"] += 1
+        errors["last_errors"].append(f"Telegram: {time.strftime('%H:%M')} - не удалось отправить кнопку")
+    return result
 
 
 def create_main_keyboard():
@@ -355,7 +382,6 @@ def detect_fh_category(text):
 
 
 def format_quote(text):
-    """Превращает текст в цитату с '>' перед каждой строкой"""
     lines = text.split('\n')
     quoted_lines = [f"> {line}" for line in lines if line.strip()]
     return '\n'.join(quoted_lines) if quoted_lines else "> (описание отсутствует)"
@@ -419,6 +445,54 @@ def format_kabanchik_message(title, category, description="Описание на
     )
 
 
+def get_uptime():
+    """Возвращает время работы бота"""
+    diff = time.time() - stats["start_time"]
+    hours = int(diff // 3600)
+    minutes = int((diff % 3600) // 60)
+    return f"{hours} ч {minutes} мин"
+
+
+def get_status_message():
+    """Формирует сообщение со статусом"""
+    total_errors = sum([errors["freelancehunt"], errors["kabanchik"], errors["gemini"], errors["telegram"]])
+    
+    status = "✅ БОТ РАБОТАЕТ" if total_errors < 10 else "⚠️ БОТ РАБОТАЕТ С ОШИБКАМИ"
+    
+    error_lines = []
+    if errors["freelancehunt"] > 0:
+        error_lines.append(f"• Freelancehunt: {errors['freelancehunt']} ошибок")
+    if errors["kabanchik"] > 0:
+        error_lines.append(f"• Kabanchik: {errors['kabanchik']} ошибок")
+    if errors["gemini"] > 0:
+        error_lines.append(f"• Gemini: {errors['gemini']} ошибок")
+    if errors["telegram"] > 0:
+        error_lines.append(f"• Telegram: {errors['telegram']} ошибок")
+    
+    if not error_lines:
+        error_lines.append("• Ошибок нет ✅")
+    
+    # Последние ошибки (до 3 штук)
+    last_errors = "\n".join([f"• {e}" for e in errors["last_errors"][-3:]]) if errors["last_errors"] else "• Нет"
+    
+    # Проверка статуса Gemini
+    gemini_status = "✅ Доступен" if GEMINI_API_KEY else "❌ Не настроен"
+    
+    return (
+        f"📊 <b>СТАТУС БОТА</b>\n\n"
+        f"{status}\n\n"
+        f"📋 <b>Статистика:</b>\n"
+        f"• Найдено заказов: {stats['orders_found']}\n"
+        f"• Отправлено в Telegram: {stats['orders_sent']}\n"
+        f"• AI-ответов сгенерировано: {stats['ai_generated']}\n\n"
+        f"⚠️ <b>Ошибки:</b>\n" + "\n".join(error_lines) + f"\n"
+        f"📌 <b>Последние ошибки:</b>\n{last_errors}\n\n"
+        f"🤖 <b>Gemini API:</b> {gemini_status}\n"
+        f"⏱ <b>Работает:</b> {get_uptime()}\n"
+        f"🔄 <b>Запущен:</b> {time.strftime('%d.%m.%Y %H:%M', time.localtime(stats['start_time']))}"
+    )
+
+
 def generate_ai_response(project_title, project_description, project_category):
     if not GEMINI_API_KEY:
         return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
@@ -461,6 +535,10 @@ def generate_ai_response(project_title, project_description, project_category):
             if ai_text:
                 return ai_text.strip()
         
+        if response.status_code == 429:
+            errors["gemini"] += 1
+            errors["last_errors"].append(f"Gemini: {time.strftime('%H:%M')} - лимит превышен (429)")
+        
         print(f"DEBUG: Gemini error: {response.status_code}")
         return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
 
@@ -469,6 +547,8 @@ def generate_ai_response(project_title, project_description, project_category):
 Готов обсудить детали. Жду вашего ответа!"""
             
     except Exception as e:
+        errors["gemini"] += 1
+        errors["last_errors"].append(f"Gemini: {time.strftime('%H:%M')} - {str(e)[:30]}")
         print(f"DEBUG: AI generation error: {e}")
         return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
 
@@ -517,6 +597,8 @@ def parse_freelancehunt():
 
                 category = detect_fh_category(text_for_filter)
                 fh_sent_projects.add(project_id)
+                
+                stats["orders_found"] += 1
 
                 pending_orders[project_id] = {
                     "title": title,
@@ -528,12 +610,16 @@ def parse_freelancehunt():
                     title, summary, category, budget, currency
                 )
 
-                send_telegram_message_with_ai_button(
+                result = send_telegram_message_with_ai_button(
                     message_text,
                     link,
                     project_id
                 )
+                if result:
+                    stats["orders_sent"] += 1
         except Exception as e:
+            errors["freelancehunt"] += 1
+            errors["last_errors"].append(f"Freelancehunt: {time.strftime('%H:%M')} - {str(e)[:30]}")
             print(f"DEBUG: parse_freelancehunt error for {category_name}: {e}")
 
 
@@ -545,6 +631,8 @@ def parse_kabanchik():
             try:
                 response = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
             except requests.exceptions.Timeout:
+                errors["kabanchik"] += 1
+                errors["last_errors"].append(f"Kabanchik: {time.strftime('%H:%M')} - таймаут")
                 print(f"DEBUG: Kabanchik timeout for {url}")
                 continue
                 
@@ -582,6 +670,7 @@ def parse_kabanchik():
                     category = "Без категории"
 
                 kabanchik_sent_tasks.add(full_link)
+                stats["orders_found"] += 1
 
                 pending_orders[full_link] = {
                     "title": title,
@@ -593,12 +682,16 @@ def parse_kabanchik():
                     title, category, "Описание на сайте", None, ""
                 )
 
-                send_telegram_message_with_ai_button(
+                result = send_telegram_message_with_ai_button(
                     message_text,
                     full_link,
                     full_link
                 )
+                if result:
+                    stats["orders_sent"] += 1
     except Exception as e:
+        errors["kabanchik"] += 1
+        errors["last_errors"].append(f"Kabanchik: {time.strftime('%H:%M')} - {str(e)[:30]}")
         print(f"DEBUG: parse_kabanchik error: {e}")
 
 
@@ -639,7 +732,7 @@ def handle_updates():
                             create_main_keyboard()
                         )
                     elif text == "/status":
-                        send_telegram_message("✅ <b>БОТ РАБОТАЕТ</b>")
+                        send_telegram_message(get_status_message())
 
                 elif "callback_query" in u:
                     cb = u["callback_query"]
@@ -666,6 +759,7 @@ def handle_updates():
                                 order["description"],
                                 order["category"]
                             )
+                            stats["ai_generated"] += 1
                             
                             ai_text_short = ai_text[:250]
                             
@@ -839,7 +933,7 @@ def handle_updates():
                         })
 
                     elif data == "bot_status":
-                        send_telegram_message("✅ <b>БОТ РАБОТАЕТ</b>")
+                        send_telegram_message(get_status_message())
                         telegram_api("answerCallbackQuery", {
                             "callback_query_id": cid,
                             "text": "📊 Статус бота",
