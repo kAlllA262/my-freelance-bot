@@ -641,6 +641,7 @@ def handle_updates():
                     data = cb["data"]
                     cid = cb["id"]
                     chat_id = cb["message"]["chat"]["id"]
+                    message_id = cb["message"]["message_id"]
                     config = ensure_config_exists()
 
                     if data.startswith("ai_"):
@@ -699,7 +700,18 @@ def handle_updates():
                         send_telegram_message("🔍 <b>Выберите ключевое слово:</b>", create_keywords_keyboard())
 
                     elif data == "back_to_settings":
+                        # Удаляем текущее сообщение
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
+                        # Отправляем настройки
                         send_telegram_message("⚙️ <b>Настройки</b>", create_settings_keyboard())
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "⬅️ Назад",
+                            "show_alert": False
+                        })
 
                     elif data == "show_fh_categories":
                         text = "📁 <b>Freelancehunt категории:</b>\n\n"
@@ -776,7 +788,7 @@ def handle_updates():
                     elif data == "close_settings":
                         telegram_api("deleteMessage", {
                             "chat_id": chat_id,
-                            "message_id": cb["message"]["message_id"]
+                            "message_id": message_id
                         })
                         telegram_api("answerCallbackQuery", {
                             "callback_query_id": cid,
@@ -814,4 +826,20 @@ def main():
     if GEMINI_API_KEY:
         print("✅ GEMINI_API_KEY найден! AI-ответы будут генерироваться ПО НАЖАТИЮ.")
     else:
-        print("⚠️ GEMINI_API_KEY не зада
+        print("⚠️ GEMINI_API_KEY не задан! AI-ответы будут ШАБЛОННЫМИ.")
+
+    ensure_config_exists()
+    setup_bot_menu()
+
+    Thread(target=run_web_server, daemon=True).start()
+    Thread(target=monitor_freelancehunt, daemon=True).start()
+    Thread(target=monitor_kabanchik, daemon=True).start()
+    Thread(target=handle_updates, daemon=True).start()
+
+    print("Все потоки запущены. Ожидание...")
+    while True:
+        time.sleep(60)
+
+
+if __name__ == "__main__":
+    main()
