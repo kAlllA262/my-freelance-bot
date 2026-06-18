@@ -361,7 +361,6 @@ def detect_tags(title, description, category, budget):
     tags = []
     text = f"{title} {description}".lower()
     
-    # Тэги по категории
     category_tags = {
         "Аудио/видео монтаж": "#монтаж",
         "AI создание видео": "#AI",
@@ -375,21 +374,17 @@ def detect_tags(title, description, category, budget):
     if category in category_tags:
         tags.append(category_tags[category])
     
-    # Срочность
     if "срочно" in text or "срочный" in text:
         tags.append("#срочный")
     
-    # Высокий бюджет
     if budget and budget > 200:
         tags.append("#высокий_бюджет")
     elif budget and budget > 100:
         tags.append("#средний_бюджет")
     
-    # YouTube
     if "youtube" in text or "ютуб" in text:
         tags.append("#youtube")
     
-    # AI/нейросеть
     if "ai" in text or "нейросеть" in text or "sora" in text:
         tags.append("#AI")
     
@@ -438,13 +433,8 @@ def format_freelancehunt_message(title, summary, category, budget=None, currency
     if summary_translated:
         summary_line += "\n\n<i>(переведен)</i>"
     
-    # Время публикации
     time_text = time_ago(published)
-    
-    # Тэги
     tags = detect_tags(title, summary, category, budget)
-    
-    # Количество откликов
     bids_text = f"👥 Откликов: {bids}" if bids else ""
 
     return (
@@ -475,7 +465,6 @@ def format_kabanchik_message(title, category, description="Описание на
     if description_translated:
         description_line += "\n\n<i>(переведен)</i>"
     
-    # Тэги для Kabanchik
     tags = detect_tags(title, description, category, budget)
 
     return (
@@ -573,10 +562,8 @@ def parse_freelancehunt():
                 summary = getattr(entry, "summary", "")
                 project_id = link or title
                 
-                # Парсим количество откликов (bids)
                 bids = getattr(entry, "comments", "0")
                 if bids == "0":
-                    # Пробуем другое поле
                     bids = getattr(entry, "bids", "0")
 
                 if project_id in fh_sent_projects:
@@ -600,7 +587,6 @@ def parse_freelancehunt():
                     "category": category
                 }
 
-                # Получаем дату публикации
                 published = getattr(entry, "published_parsed", None)
 
                 message_text = format_freelancehunt_message(
@@ -806,4 +792,199 @@ def handle_updates():
                         send_telegram_message("🔍 <b>Выберите ключевое слово:</b>", create_keywords_keyboard())
                         telegram_api("answerCallbackQuery", {
                             "callback_query_id": cid,
-                           
+                            "text": "🔍 Ключевые слова",
+                            "show_alert": False
+                        })
+
+                    elif data == "back_to_settings":
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
+                        send_telegram_message("⚙️ <b>Настройки</b>", create_settings_keyboard())
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "⬅️ Назад",
+                            "show_alert": False
+                        })
+
+                    elif data == "show_fh_categories":
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
+                        text = "📁 <b>Freelancehunt категории:</b>\n\n"
+                        for cat, enabled in config["freelancehunt"]["categories"].items():
+                            text += f"{'✅' if enabled else '❌'} {cat}\n"
+                        send_telegram_message(text, create_settings_keyboard())
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "📁 Freelancehunt",
+                            "show_alert": False
+                        })
+
+                    elif data == "show_kb_categories":
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
+                        text = "📁 <b>Kabanchik категории:</b>\n\n"
+                        for cat, enabled in config["kabanchik"]["categories"].items():
+                            text += f"{'✅' if enabled else '❌'} {cat}\n"
+                        send_telegram_message(text, create_settings_keyboard())
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "📁 Kabanchik",
+                            "show_alert": False
+                        })
+
+                    elif data.startswith("budget_"):
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
+                        budget = int(data.replace("budget_", ""))
+                        config["freelancehunt"]["min_budget"] = budget
+                        save_config(config)
+                        send_telegram_message(
+                            f"✅ Минимальный бюджет установлен: ${budget}",
+                            create_settings_keyboard()
+                        )
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": f"✅ Бюджет ${budget}",
+                            "show_alert": False
+                        })
+
+                    elif data.startswith("kw_"):
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
+                        keyword_map = {
+                            "kw_montage": "монтаж",
+                            "kw_ai_video": "ai видео",
+                            "kw_ads": "реклама",
+                            "kw_youtube": "youtube видео",
+                            "kw_ai_ads": "ai реклама",
+                            "kw_ai_film": "ai фильм",
+                            "kw_davinci": "davinci resolve",
+                            "kw_color": "цветокоррекция"
+                        }
+                        keyword = keyword_map.get(data)
+                        if keyword:
+                            keywords = config["freelancehunt"]["keywords"]
+                            if keyword in keywords:
+                                keywords.remove(keyword)
+                                msg = f"❌ Ключевое слово удалено: {keyword}"
+                            else:
+                                keywords.append(keyword)
+                                msg = f"✅ Ключевое слово добавлено: {keyword}"
+                            config["freelancehunt"]["keywords"] = keywords
+                            save_config(config)
+                            send_telegram_message(msg, create_settings_keyboard())
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "✅ Готово",
+                            "show_alert": False
+                        })
+
+                    elif data == "reset_config":
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
+                        config = get_default_config()
+                        save_config(config)
+                        send_telegram_message("🔄 Настройки сброшены", create_settings_keyboard())
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "🔄 Сброшено",
+                            "show_alert": False
+                        })
+
+                    elif data == "bot_status":
+                        send_telegram_message("✅ <b>БОТ РАБОТАЕТ</b>")
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "📊 Статус бота",
+                            "show_alert": False
+                        })
+
+                    elif data == "bot_help":
+                        send_telegram_message(
+                            "📚 <b>ДОСТУПНЫЕ ДЕЙСТВИЯ:</b>\n\n"
+                            "⚙️ Настройки\n"
+                            "📊 Статус бота\n"
+                            "❓ Help\n"
+                            "🔄 Перезапуск",
+                            create_main_keyboard()
+                        )
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "❓ Help",
+                            "show_alert": False
+                        })
+
+                    elif data == "bot_restart":
+                        send_telegram_message("🔄 Перезапуск...", create_main_keyboard())
+                        os._exit(0)
+
+                    elif data == "close_settings":
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "Меню закрыто"
+                        })
+
+        except Exception as e:
+            print(f"DEBUG: Ошибка в handle_updates: {e}")
+            time.sleep(5)
+
+
+def monitor_freelancehunt():
+    while True:
+        parse_freelancehunt()
+        time.sleep(FH_INTERVAL)
+
+
+def monitor_kabanchik():
+    while True:
+        parse_kabanchik()
+        time.sleep(KABANCHIK_INTERVAL)
+
+
+def main():
+    try:
+        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
+    except Exception as e:
+        print(f"DEBUG: Ошибка удаления webhook: {e}")
+    
+    print("Бот запускается...")
+    if not BOT_TOKEN or not CHAT_ID:
+        print("DEBUG: BOT_TOKEN или CHAT_ID не заданы")
+        return
+
+    if GEMINI_API_KEY:
+        print("✅ GEMINI_API_KEY найден! AI-ответы будут генерироваться ПО НАЖАТИЮ.")
+    else:
+        print("⚠️ GEMINI_API_KEY не задан! AI-ответы будут ШАБЛОННЫМИ.")
+
+    ensure_config_exists()
+    setup_bot_menu()
+
+    Thread(target=run_web_server, daemon=True).start()
+    Thread(target=monitor_freelancehunt, daemon=True).start()
+    Thread(target=monitor_kabanchik, daemon=True).start()
+    Thread(target=handle_updates, daemon=True).start()
+
+    print("Все потоки запущены. Ожидание...")
+    while True:
+        time.sleep(60)
+
+
+if __name__ == "__main__":
+    main()
