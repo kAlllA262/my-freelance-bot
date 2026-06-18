@@ -12,7 +12,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 PORT = int(os.environ.get("PORT", 10000))
 
-# 🔑 API-ключ Gemini (добавь в Environment Variables на Render)
+# 🔑 API-ключ Gemini
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # Категории Freelancehunt
@@ -40,7 +40,6 @@ CONFIG_FILE = "config.json"
 
 fh_sent_projects = set()
 kabanchik_sent_tasks = set()
-# Храним AI-ответы для проектов
 project_ai_responses = {}
 
 
@@ -165,18 +164,17 @@ def send_telegram_message(text, reply_markup=None):
 
 
 def send_telegram_message_with_ai_button(text, button_text, button_url, project_id):
-    """Отправляет сообщение с двумя кнопками: Открыть проект и Скопировать AI-ответ"""
+    """Отправляет сообщение с двумя кнопками"""
     if not BOT_TOKEN or not CHAT_ID:
-        print("DEBUG: BOT_TOKEN or CHAT_ID missing")
         return None
 
-    # Проверяем, есть ли AI-ответ для этого проекта
-    ai_response = project_ai_responses.get(project_id, "")
+    # Генерируем короткий ID для callback_data (не больше 64 символов)
+    safe_id = str(hash(project_id))[:10]
     
     keyboard = {
         "inline_keyboard": [
             [{"text": button_text, "url": button_url.strip()}],
-            [{"text": "📋 Скопировать AI-ответ", "callback_data": f"copy_ai_{project_id}"}]
+            [{"text": "📋 Скопировать AI-ответ", "callback_data": f"copy_{safe_id}"}]
         ]
     }
 
@@ -378,7 +376,7 @@ def format_freelancehunt_message(title, summary, category, budget=None, currency
 
     ai_section = ""
     if ai_response:
-        ai_section = f"\n\n🤖 <b>AI-ОТВЕТ ДЛЯ ЗАКАЗЧИКА:</b>\n<pre>{clean_html_text(ai_response[:500])}</pre>"
+        ai_section = f"\n\n🤖 <b>AI-ОТВЕТ:</b>\n{clean_html_text(ai_response[:500])}"
 
     return (
         f"🟡 <b>Freelancehunt</b>\n\n"
@@ -408,7 +406,7 @@ def format_kabanchik_message(title, category, description="Описание на
 
     ai_section = ""
     if ai_response:
-        ai_section = f"\n\n🤖 <b>AI-ОТВЕТ ДЛЯ ЗАКАЗЧИКА:</b>\n<pre>{clean_html_text(ai_response[:500])}</pre>"
+        ai_section = f"\n\n🤖 <b>AI-ОТВЕТ:</b>\n{clean_html_text(ai_response[:500])}"
 
     return (
         f"🟢 <b>Kabanchik</b>\n\n"
@@ -421,30 +419,26 @@ def format_kabanchik_message(title, category, description="Описание на
 
 
 def generate_ai_response(project_title, project_description, project_category):
-    """Генерирует продающий AI-ответ на заказ с помощью Gemini"""
+    """Генерирует AI-ответ с помощью Gemini (новая модель)"""
     if not GEMINI_API_KEY:
         return "⚠️ AI-ответ недоступен: не настроен API-ключ Gemini"
     
     try:
+        # Новая модель Gemini 2.0 Flash (бесплатная)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        
         prompt = f"""
-Ты — профессиональный фрилансер в сфере {project_category}. 
-Напиши продающий ответ на этот заказ:
+Ты — профессиональный фрилансер. Напиши продающий ответ на этот заказ:
 
 Заголовок: {project_title}
 Описание: {project_description[:500]}
 
-Твой ответ должен:
-1. Показать экспертизу в этой области
-2. Предложить конкретные идеи решения задачи
-3. Быть уверенным и профессиональным
-4. Заканчиваться призывом к действию (обсудить детали)
-5. Быть на русском языке
-
-Ответ должен быть кратким (3-5 предложений).
+Напиши краткий ответ (3-5 предложений) на русском языке, который:
+1. Показывает экспертизу в этой области
+2. Предлагает конкретные идеи
+3. Заканчивается призывом обсудить детали
 """
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
-        
         payload = {
             "contents": [{
                 "parts": [{"text": prompt}]
@@ -456,14 +450,14 @@ def generate_ai_response(project_title, project_description, project_category):
         if response.status_code == 200:
             data = response.json()
             ai_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-            return ai_text.strip()
+            return ai_text.strip() if ai_text else "⚠️ Пустой ответ от AI"
         else:
-            print(f"DEBUG: Gemini API error: {response.status_code} {response.text}")
-            return "⚠️ Не удалось сгенерировать AI-ответ"
+            print(f"DEBUG: Gemini API error: {response.status_code}")
+            return f"⚠️ Ошибка API: {response.status_code}"
             
     except Exception as e:
         print(f"DEBUG: AI generation error: {e}")
-        return "⚠️ Ошибка генерации AI-ответа"
+        return "⚠️ Ошибка генерации"
 
 
 def setup_bot_menu():
@@ -481,7 +475,6 @@ def parse_freelancehunt():
 
     for category_name, category_url in FH_CATEGORIES.items():
         try:
-            print(f"DEBUG: Парсинг категории: {category_name}")
             feed = feedparser.parse(category_url)
             
             for entry in feed.entries:
@@ -505,13 +498,10 @@ def parse_freelancehunt():
                 category = detect_fh_category(text_for_filter)
                 fh_sent_projects.add(project_id)
 
-                # 🧠 Генерируем AI-ответ (параллельно)
-                print(f"DEBUG: Генерация AI-ответа для проекта: {title[:50]}...")
+                # Генерируем AI-ответ
                 ai_response = generate_ai_response(title, summary, category)
                 project_ai_responses[project_id] = ai_response
-                print(f"DEBUG: AI-ответ сгенерирован ({len(ai_response)} символов)")
 
-                # Формируем сообщение с AI-ответом
                 message_text = format_freelancehunt_message(
                     title, summary, category, budget, currency, ai_response
                 )
@@ -567,12 +557,11 @@ def parse_kabanchik():
 
                 kabanchik_sent_tasks.add(full_link)
 
-                # 🧠 Генерируем AI-ответ для Kabanchik
-                ai_response = generate_ai_response(title, "Описание на сайте Kabanchik", category)
+                ai_response = generate_ai_response(title, "Описание на сайте", category)
                 project_ai_responses[full_link] = ai_response
 
                 message_text = format_kabanchik_message(
-                    title, category, "Описание на сайте Kabanchik", None, "", ai_response
+                    title, category, "Описание на сайте", None, "", ai_response
                 )
 
                 send_telegram_message_with_ai_button(
@@ -587,17 +576,15 @@ def parse_kabanchik():
 
 def handle_updates():
     offset = 0
-    print("DEBUG: Поток handle_updates запущен!")
     while True:
         try:
-            print("DEBUG: Проверка обновлений в Telegram...")
             r = requests.get(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={offset}&timeout=30",
                 timeout=40
             )
 
             if r.status_code != 200:
-                print(f"DEBUG: Ошибка Telegram API getUpdates: {r.status_code} {r.text}")
+                print(f"DEBUG: Ошибка getUpdates: {r.status_code}")
                 time.sleep(5)
                 continue
 
@@ -605,7 +592,6 @@ def handle_updates():
 
             for u in updates:
                 offset = max(offset, u["update_id"] + 1)
-                print(f"DEBUG: Получено обновление: {u}")
 
                 if "message" in u:
                     message = u["message"]
@@ -613,11 +599,9 @@ def handle_updates():
 
                     if text == "/start":
                         send_telegram_message("Меню:", create_main_keyboard())
-
                     elif text == "/settings":
                         config = ensure_config_exists()
                         send_telegram_message(get_settings_text(config), create_settings_keyboard())
-
                     elif text == "/help":
                         send_telegram_message(
                             "📚 <b>ДОСТУПНЫЕ ДЕЙСТВИЯ:</b>\n\n"
@@ -627,7 +611,6 @@ def handle_updates():
                             "🔄 Перезапуск",
                             create_main_keyboard()
                         )
-
                     elif text == "/status":
                         config = ensure_config_exists()
                         send_telegram_message(
@@ -645,58 +628,26 @@ def handle_updates():
                     message_id = cb["message"]["message_id"]
                     config = ensure_config_exists()
 
-                    # 🆕 Обработка кнопки "Скопировать AI-ответ"
-                    if data.startswith("copy_ai_"):
-                        project_id = data.replace("copy_ai_", "")
-                        ai_text = project_ai_responses.get(project_id, "AI-ответ не найден")
+                    # Обработка кнопки "Скопировать AI-ответ"
+                    if data.startswith("copy_"):
+                        # Ищем project_id по хешу
+                        found_id = None
+                        for pid in project_ai_responses.keys():
+                            if str(hash(pid))[:10] == data.replace("copy_", ""):
+                                found_id = pid
+                                break
                         
-                        # Отправляем AI-ответ отдельным сообщением с кнопкой копирования
-                        telegram_api("sendMessage", {
-                            "chat_id": chat_id,
-                            "text": f"📋 <b>AI-ОТВЕТ ДЛЯ ЗАКАЗЧИКА</b>\n\n<pre>{clean_html_text(ai_text)}</pre>",
-                            "parse_mode": "HTML",
-                            "reply_markup": {
-                                "inline_keyboard": [
-                                    [{"text": "📋 Скопировать текст", "callback_data": f"copy_text_{project_id}"}]
-                                ]
-                            }
-                        })
-                        
-                        telegram_api("answerCallbackQuery", {
-                            "callback_query_id": cid,
-                            "text": "AI-ответ отправлен!"
-                        })
-
-                    # 🆕 Обработка кнопки "Скопировать текст"
-                    elif data.startswith("copy_text_"):
-                        project_id = data.replace("copy_text_", "")
-                        ai_text = project_ai_responses.get(project_id, "AI-ответ не найден")
-                        
-                        # Отправляем текст для копирования (без форматирования)
-                        telegram_api("sendMessage", {
-                            "chat_id": chat_id,
-                            "text": f"📋 Скопируй этот текст:\n\n{ai_text}",
-                            "reply_markup": {
-                                "inline_keyboard": [
-                                    [{"text": "✅ Готово", "callback_data": "copy_done"}]
-                                ]
-                            }
-                        })
-                        
-                        telegram_api("answerCallbackQuery", {
-                            "callback_query_id": cid,
-                            "text": "Текст отправлен! Скопируй его."
-                        })
-
-                    elif data == "copy_done":
-                        telegram_api("deleteMessage", {
-                            "chat_id": chat_id,
-                            "message_id": message_id
-                        })
-                        telegram_api("answerCallbackQuery", {
-                            "callback_query_id": cid,
-                            "text": "Отлично! Ответ скопирован."
-                        })
+                        if found_id:
+                            ai_text = project_ai_responses.get(found_id, "AI-ответ не найден")
+                            telegram_api("sendMessage", {
+                                "chat_id": chat_id,
+                                "text": f"📋 <b>AI-ОТВЕТ ДЛЯ ЗАКАЗЧИКА</b>\n\n{ai_text}",
+                                "parse_mode": "HTML"
+                            })
+                            telegram_api("answerCallbackQuery", {
+                                "callback_query_id": cid,
+                                "text": "✅ AI-ответ отправлен!"
+                            })
 
                     elif data == "open_settings":
                         send_telegram_message(get_settings_text(config), create_settings_keyboard())
@@ -810,10 +761,8 @@ def monitor_kabanchik():
 
 
 def main():
-    # Очищаем вебхук
     try:
         requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
-        print("DEBUG: Webhook удален")
     except Exception as e:
         print(f"DEBUG: Ошибка удаления webhook: {e}")
     
@@ -822,9 +771,10 @@ def main():
         print("DEBUG: BOT_TOKEN или CHAT_ID не заданы")
         return
 
-    if not GEMINI_API_KEY:
-        print("⚠️ ВНИМАНИЕ: GEMINI_API_KEY не задан! AI-ответы не будут работать.")
-        print("   Получи бесплатный ключ на https://aistudio.google.com/")
+    if GEMINI_API_KEY:
+        print("✅ GEMINI_API_KEY найден! AI-ответы будут работать.")
+    else:
+        print("⚠️ GEMINI_API_KEY не задан! AI-ответы не будут работать.")
 
     ensure_config_exists()
     setup_bot_menu()
