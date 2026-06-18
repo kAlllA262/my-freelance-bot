@@ -12,10 +12,8 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 PORT = int(os.environ.get("PORT", 10000))
 
-# 🔑 API-ключ Gemini
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# Категории Freelancehunt
 FH_CATEGORIES = {
     "ai_video": "https://freelancehunt.com/projects.rss?skills%5B%5D=192",
     "animation": "https://freelancehunt.com/projects.rss?skills%5B%5D=91",
@@ -90,55 +88,19 @@ def get_default_config():
             },
             "min_budget": 0,
             "keywords": [
-                # --- МОНТАЖ ---
-                "монтаж",
-                "видеомонтаж",
-                "монтаж видео",
-                "нарезка",
-                "склейка",
-                "редактирование видео",
-                # --- РЕКЛАМА ---
-                "рекламный ролик",
-                "видеореклама",
-                "промо",
-                "динамичный ролик",
-                "реклама для соцсетей",
-                "рекламное видео",
-                # --- YOUTUBE ---
-                "youtube видео",
-                "ютуб",
-                "youtube монтаж",
-                "ютуб монтаж",
-                "видео для youtube",
-                "youtube шортс",
-                # --- AI-ГЕНЕРАЦИЯ ---
-                "ai видео",
-                "генерация видео",
-                "нейросеть",
-                "sora",
-                "midjourney",
-                "генерация фото",
-                "ai фото",
-                "ai реклама",
-                "реклама с ии",
-                "ai фильм",
-                "короткометражка",
-                "ai кино",
-                # --- ПРОГРАММЫ И ОБРАБОТКА ---
-                "davinci resolve",
-                "цветокоррекция",
-                "color grading",
-                "постпродакшн",
-                "color correction",
-                "визуальные эффекты",
-                "vfx",
-                # --- ДОПОЛНИТЕЛЬНО ---
-                "motion",
-                "анимация",
-                "динамичный",
-                "монтаж reels",
-                "обработка видео",
-                "ретушь"
+                "монтаж", "видеомонтаж", "монтаж видео", "нарезка", "склейка",
+                "редактирование видео", "рекламный ролик", "видеореклама",
+                "промо", "динамичный ролик", "реклама для соцсетей",
+                "рекламное видео", "youtube видео", "ютуб",
+                "youtube монтаж", "ютуб монтаж", "видео для youtube",
+                "youtube шортс", "ai видео", "генерация видео",
+                "нейросеть", "sora", "midjourney", "генерация фото",
+                "ai фото", "ai реклама", "реклама с ии", "ai фильм",
+                "короткометражка", "ai кино", "davinci resolve",
+                "цветокоррекция", "color grading", "постпродакшн",
+                "color correction", "визуальные эффекты", "vfx",
+                "motion", "анимация", "динамичный", "монтаж reels",
+                "обработка видео", "ретушь"
             ]
         },
         "kabanchik": {
@@ -224,15 +186,16 @@ def send_telegram_message_with_ai_button(text, button_url, project_id):
 
 
 def create_main_keyboard():
+    """Главное меню с кнопками в ряд по 2"""
     return {
         "inline_keyboard": [
             [
                 {"text": "⚙️ Настройки", "callback_data": "open_settings"},
-                {"text": "📊 Статус бота", "callback_data": "bot_status"}
+                {"text": "🔄 Перезапуск", "callback_data": "bot_restart"}
             ],
             [
-                {"text": "❓ Help", "callback_data": "bot_help"},
-                {"text": "🔄 Перезапуск", "callback_data": "bot_restart"}
+                {"text": "📊 Статус бота", "callback_data": "bot_status"},
+                {"text": "❓ Help", "callback_data": "bot_help"}
             ]
         ]
     }
@@ -650,7 +613,7 @@ def handle_updates():
                     text = message.get("text", "").strip()
 
                     if text == "/start":
-                        send_telegram_message("Меню:", create_main_keyboard())
+                        send_telegram_message("🏠 <b>ГЛАВНОЕ МЕНЮ</b>\n\nВыберите действие:", create_main_keyboard())
                     elif text == "/settings":
                         config = ensure_config_exists()
                         send_telegram_message(get_settings_text(config), create_settings_keyboard())
