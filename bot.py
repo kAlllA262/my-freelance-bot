@@ -164,6 +164,7 @@ def send_telegram_message(text, reply_markup=None):
 
 
 def send_telegram_message_with_ai_button(text, button_url, project_id):
+    """Отправляет сообщение с двумя кнопками: Открыть и AI ответ"""
     if not BOT_TOKEN or not CHAT_ID:
         return None
 
@@ -468,10 +469,15 @@ def generate_ai_response(project_title, project_description, project_category):
 
 
 def setup_bot_menu():
-    telegram_api("setChatMenuButton", {
-        "menu_button": {
-            "type": "commands"
-        }
+    """Настраивает кнопку 'Меню' слева от гифки"""
+    telegram_api("setMyCommands", {
+        "commands": [
+            {"command": "start", "description": "🏠 Главное меню"},
+            {"command": "menu", "description": "🏠 Главное меню"},
+            {"command": "settings", "description": "⚙️ Настройки"},
+            {"command": "status", "description": "📊 Статус бота"},
+            {"command": "help", "description": "❓ Помощь"}
+        ]
     })
 
 
@@ -612,7 +618,7 @@ def handle_updates():
                     message = u["message"]
                     text = message.get("text", "").strip()
 
-                    if text == "/start":
+                    if text == "/start" or text == "/menu":
                         send_telegram_message("🏠 <b>ГЛАВНОЕ МЕНЮ</b>\n\nВыберите действие:", create_main_keyboard())
                     elif text == "/settings":
                         config = ensure_config_exists()
