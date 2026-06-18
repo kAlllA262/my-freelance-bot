@@ -12,6 +12,9 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 PORT = int(os.environ.get("PORT", 10000))
 
+# 🔑 API-ключ Gemini (добавь в Environment Variables на Render)
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+
 # Категории Freelancehunt
 FH_CATEGORIES = {
     "ai_video": "https://freelancehunt.com/projects.rss?skills%5B%5D=192",
@@ -37,6 +40,7 @@ CONFIG_FILE = "config.json"
 
 fh_sent_projects = set()
 kabanchik_sent_tasks = set()
+last_ai_request_time = 0  # Для контроля частоты запросов
 
 
 class HealthCheckServer(BaseHTTPRequestHandler):
@@ -413,8 +417,12 @@ def format_kabanchik_message(title, category, description="Описание на
 
 
 def generate_ai_response(project_title, project_description, project_category):
-    """Генерирует AI-ответ (обрезается до 250 символов для кнопки)"""
-    full_response = f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
+    """
+    Генерирует УНИКАЛЬНЫЙ AI-ответ для каждого заказа с помощью Gemini
+    """
+    if not GEMINI_API_KEY:
+        # Если ключа нет — возвращаем шаблонный ответ
+        return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
 
 Я специализируюсь в области {project_category} и имею успешный опыт в подобных проектах.
 
@@ -425,8 +433,72 @@ def generate_ai_response(project_title, project_description, project_category):
 
 Буду рад обсудить детали и стоимость. Жду вашего ответа!"""
     
-    # Возвращаем полный ответ (для отображения в логах)
-    return full_response
+    global last_ai_request_time
+    
+    # Ждём минимум 1.2 секунды между запросами (безопасно для Gemini)
+    time_since_last = time.time() - last_ai_request_time
+    if time_since_last < 1.2:
+        time.sleep(1.2 - time_since_last)
+    
+    last_ai_request_time = time.time()
+    
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        
+        prompt = f"""
+Ты — профессиональный фрилансер в сфере {project_category}.
+Напиши ПЕРСОНАЛЬНЫЙ продающий ответ на этот конкретный заказ:
+
+Заголовок заказа: {project_title}
+Описание заказа: {project_description[:500]}
+
+Твой ответ должен:
+1. Быть уникальным для ЭТОГО КОНКРЕТНОГО заказа
+2. Показать понимание задачи (упомяни детали из описания)
+3. Предложить конкретные идеи решения
+4. Быть уверенным и профессиональным
+5. Заканчиваться призывом к действию
+
+Ответ: 3-5 предложений на русском языке, кратко и по делу.
+"""
+
+        payload = {
+            "contents": [{
+                "parts": [{"text": prompt}]
+            }]
+        }
+        
+        response = requests.post(url, json=payload, timeout=30)
+        
+        if response.status_code == 429:
+            print("DEBUG: Gemini 429 - превышен лимит, возвращаем шаблон")
+            return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
+
+Я специализируюсь в области {project_category} и имею опыт в таких проектах.
+
+Готов обсудить детали и стоимость. Жду вашего ответа!"""
+        
+        if response.status_code == 200:
+            data = response.json()
+            ai_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+            if ai_text:
+                return ai_text.strip()
+        
+        # Если ошибка — возвращаем шаблон
+        print(f"DEBUG: Gemini error: {response.status_code}")
+        return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
+
+Я специализируюсь в области {project_category} и имею успешный опыт.
+
+Готов обсудить детали. Жду вашего ответа!"""
+            
+    except Exception as e:
+        print(f"DEBUG: AI generation error: {e}")
+        return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
+
+Я специализируюсь в области {project_category} и имею опыт в таких проектах.
+
+Жду вашего ответа для обсуждения деталей!"""
 
 
 def setup_bot_menu():
@@ -467,7 +539,9 @@ def parse_freelancehunt():
                 category = detect_fh_category(text_for_filter)
                 fh_sent_projects.add(project_id)
 
+                # 🧠 Генерируем УНИКАЛЬНЫЙ AI-ответ для этого заказа
                 ai_response = generate_ai_response(title, summary, category)
+                print(f"DEBUG: AI-ответ сгенерирован для: {title[:30]}...")
 
                 message_text = format_freelancehunt_message(
                     title, summary, category, budget, currency
@@ -523,7 +597,9 @@ def parse_kabanchik():
 
                 kabanchik_sent_tasks.add(full_link)
 
+                # 🧠 Генерируем УНИКАЛЬНЫЙ AI-ответ для этого заказа
                 ai_response = generate_ai_response(title, "Описание на сайте", category)
+                print(f"DEBUG: AI-ответ сгенерирован для Kabanchik: {title[:30]}...")
 
                 message_text = format_kabanchik_message(
                     title, category, "Описание на сайте", None, ""
@@ -592,7 +668,6 @@ def handle_updates():
                     message_id = cb["message"]["message_id"]
                     config = ensure_config_exists()
 
-                    # Убираем обработку copy_ так как используется copy_text
                     if data == "open_settings":
                         send_telegram_message(get_settings_text(config), create_settings_keyboard())
 
@@ -714,6 +789,12 @@ def main():
     if not BOT_TOKEN or not CHAT_ID:
         print("DEBUG: BOT_TOKEN или CHAT_ID не заданы")
         return
+
+    if GEMINI_API_KEY:
+        print("✅ GEMINI_API_KEY найден! AI-ответы будут УНИКАЛЬНЫМИ для каждого заказа.")
+    else:
+        print("⚠️ GEMINI_API_KEY не задан! AI-ответы будут ШАБЛОННЫМИ (одинаковыми).")
+        print("   Получи ключ на https://aistudio.google.com/")
 
     ensure_config_exists()
     setup_bot_menu()
