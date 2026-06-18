@@ -1,4 +1,4 @@
-requests
-feedparser
-beautifulsoup4
-deep-translator
+requests==2.31.0
+feedparser==6.0.10
+beautifulsoup4==4.12.2
+deep-translator==1.11.4
