@@ -158,7 +158,7 @@ def send_telegram_message(text, reply_markup=None):
 
 
 def send_telegram_message_with_ai_button(text, button_url, project_id):
-    """Отправляет сообщение с двумя кнопками: Открыть и AI ответ"""
+    """Отправляет сообщение с кнопками: Открыть и AI ответ"""
     if not BOT_TOKEN or not CHAT_ID:
         return None
 
@@ -361,12 +361,10 @@ def format_freelancehunt_message(title, summary, category, budget=None, currency
     title, title_translated = maybe_translate(title)
     summary, summary_translated = maybe_translate(summary)
 
-    # Название — жирное и крупное
     title_line = f"📌 <b>{clean_html_text(title)}</b>"
     if title_translated:
         title_line += " <i>(переведен)</i>"
 
-    # Описание — отдельный блок с отступом
     summary_line = f"┌─────────────────────\n📝 <b>Описание:</b>\n{clean_html_text(summary[:900])}"
     if summary_translated:
         summary_line += "\n\n<i>(переведен)</i>"
@@ -375,6 +373,7 @@ def format_freelancehunt_message(title, summary, category, budget=None, currency
         f"🟡 <b>Freelancehunt</b>\n\n"
         f"{title_line}\n\n"
         f"🏷 <b>Категория:</b> {clean_html_text(category)}\n"
+        f"\n"  # ← ОТСТУП ПОСЛЕ КАТЕГОРИИ
         f"💰 <b>Бюджет:</b> {clean_html_text(budget_text)}\n\n"
         f"{summary_line}"
     )
@@ -388,12 +387,10 @@ def format_kabanchik_message(title, category, description="Описание на
     title, title_translated = maybe_translate(title)
     description, description_translated = maybe_translate(description)
 
-    # Название — жирное и крупное
     title_line = f"📌 <b>{clean_html_text(title)}</b>"
     if title_translated:
         title_line += " <i>(переведен)</i>"
 
-    # Описание — отдельный блок с отступом
     description_line = f"┌─────────────────────\n📝 <b>Описание:</b>\n{clean_html_text(description)}"
     if description_translated:
         description_line += "\n\n<i>(переведен)</i>"
@@ -402,6 +399,7 @@ def format_kabanchik_message(title, category, description="Описание на
         f"🟢 <b>Kabanchik</b>\n\n"
         f"{title_line}\n\n"
         f"🏷 <b>Категория:</b> {clean_html_text(category)}\n"
+        f"\n"  # ← ОТСТУП ПОСЛЕ КАТЕГОРИИ
         f"💰 <b>Бюджет:</b> {clean_html_text(budget_text)}\n\n"
         f"{description_line}"
     )
@@ -409,7 +407,16 @@ def format_kabanchik_message(title, category, description="Описание на
 
 def generate_ai_response(project_title, project_description, project_category):
     """Генерирует AI-ответ"""
-    return f"📋 <b>Готовый ответ для заказчика</b>\n\nЗдравствуйте! Меня заинтересовал ваш заказ «{project_title}».\n\nЯ специализируюсь в области {project_category} и имею опыт в подобных проектах. Могу предложить качественное выполнение работы в указанные сроки.\n\nГотов обсудить детали и стоимость. Жду вашего ответа!"
+    return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
+
+Я специализируюсь в области {project_category} и имею успешный опыт в подобных проектах.
+
+Могу предложить:
+• Качественное выполнение работы в указанные сроки
+• Профессиональный подход
+• Готовность к правкам
+
+Буду рад обсудить детали и стоимость. Жду вашего ответа!"""
 
 
 def setup_bot_menu():
@@ -450,11 +457,9 @@ def parse_freelancehunt():
                 category = detect_fh_category(text_for_filter)
                 fh_sent_projects.add(project_id)
 
-                # Генерируем AI-ответ (сохраняем, но не показываем в сообщении)
                 ai_response = generate_ai_response(title, summary, category)
                 project_ai_responses[project_id] = ai_response
 
-                # Формируем сообщение БЕЗ AI-ответа
                 message_text = format_freelancehunt_message(
                     title, summary, category, budget, currency
                 )
@@ -588,15 +593,28 @@ def handle_updates():
                         
                         if found_id:
                             ai_text = project_ai_responses.get(found_id, "AI-ответ не найден")
-                            telegram_api("sendMessage", {
-                                "chat_id": chat_id,
-                                "text": f"🤖 <b>ГОТОВЫЙ AI-ОТВЕТ ДЛЯ ЗАКАЗЧИКА</b>\n\n{ai_text}",
-                                "parse_mode": "HTML"
-                            })
+                            send_telegram_message(
+                                f"📋 <b>Скопируйте этот текст:</b>\n\n{ai_text}",
+                                {
+                                    "inline_keyboard": [
+                                        [{"text": "✅ Скопировал", "callback_data": "copied"}]
+                                    ]
+                                }
+                            )
                             telegram_api("answerCallbackQuery", {
                                 "callback_query_id": cid,
-                                "text": "✅ AI-ответ отправлен!"
+                                "text": "✅ Текст отправлен! Скопируй его."
                             })
+
+                    elif data == "copied":
+                        telegram_api("deleteMessage", {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        })
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "Отлично! Ответ скопирован."
+                        })
 
                     elif data == "open_settings":
                         send_telegram_message(get_settings_text(config), create_settings_keyboard())
