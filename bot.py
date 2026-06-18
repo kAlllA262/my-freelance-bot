@@ -37,7 +37,6 @@ CONFIG_FILE = "config.json"
 
 fh_sent_projects = set()
 kabanchik_sent_tasks = set()
-project_ai_responses = {}
 
 
 class HealthCheckServer(BaseHTTPRequestHandler):
@@ -157,18 +156,26 @@ def send_telegram_message(text, reply_markup=None):
     return telegram_api("sendMessage", payload)
 
 
-def send_telegram_message_with_ai_button(text, button_url, project_id):
-    """Отправляет сообщение с кнопками: Открыть и AI ответ"""
+def send_telegram_message_with_ai_button(text, button_url, ai_text):
+    """
+    Отправляет сообщение с двумя кнопками:
+    - 🔗 Открыть (ссылка)
+    - 🤖 AI ответ (копирует текст в буфер обмена)
+    """
     if not BOT_TOKEN or not CHAT_ID:
         return None
 
-    safe_id = str(hash(project_id))[:10]
+    # Обрезаем AI-ответ до 250 символов (максимум 256)
+    ai_text_short = ai_text[:250]
     
     keyboard = {
         "inline_keyboard": [
             [
                 {"text": "🔗 Открыть", "url": button_url.strip()},
-                {"text": "🤖 AI ответ", "callback_data": f"copy_{safe_id}"}
+                {
+                    "text": "🤖 AI ответ",
+                    "copy_text": {"text": ai_text_short}
+                }
             ]
         ]
     }
@@ -373,7 +380,7 @@ def format_freelancehunt_message(title, summary, category, budget=None, currency
         f"🟡 <b>Freelancehunt</b>\n\n"
         f"{title_line}\n\n"
         f"🏷 <b>Категория:</b> {clean_html_text(category)}\n"
-        f"\n"  # ← ОТСТУП ПОСЛЕ КАТЕГОРИИ
+        f"\n"
         f"💰 <b>Бюджет:</b> {clean_html_text(budget_text)}\n\n"
         f"{summary_line}"
     )
@@ -399,15 +406,15 @@ def format_kabanchik_message(title, category, description="Описание на
         f"🟢 <b>Kabanchik</b>\n\n"
         f"{title_line}\n\n"
         f"🏷 <b>Категория:</b> {clean_html_text(category)}\n"
-        f"\n"  # ← ОТСТУП ПОСЛЕ КАТЕГОРИИ
+        f"\n"
         f"💰 <b>Бюджет:</b> {clean_html_text(budget_text)}\n\n"
         f"{description_line}"
     )
 
 
 def generate_ai_response(project_title, project_description, project_category):
-    """Генерирует AI-ответ"""
-    return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
+    """Генерирует AI-ответ (обрезается до 250 символов для кнопки)"""
+    full_response = f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
 
 Я специализируюсь в области {project_category} и имею успешный опыт в подобных проектах.
 
@@ -417,6 +424,9 @@ def generate_ai_response(project_title, project_description, project_category):
 • Готовность к правкам
 
 Буду рад обсудить детали и стоимость. Жду вашего ответа!"""
+    
+    # Возвращаем полный ответ (для отображения в логах)
+    return full_response
 
 
 def setup_bot_menu():
@@ -458,7 +468,6 @@ def parse_freelancehunt():
                 fh_sent_projects.add(project_id)
 
                 ai_response = generate_ai_response(title, summary, category)
-                project_ai_responses[project_id] = ai_response
 
                 message_text = format_freelancehunt_message(
                     title, summary, category, budget, currency
@@ -467,7 +476,7 @@ def parse_freelancehunt():
                 send_telegram_message_with_ai_button(
                     message_text,
                     link,
-                    project_id
+                    ai_response
                 )
         except Exception as e:
             print(f"DEBUG: parse_freelancehunt error for {category_name}: {e}")
@@ -515,7 +524,6 @@ def parse_kabanchik():
                 kabanchik_sent_tasks.add(full_link)
 
                 ai_response = generate_ai_response(title, "Описание на сайте", category)
-                project_ai_responses[full_link] = ai_response
 
                 message_text = format_kabanchik_message(
                     title, category, "Описание на сайте", None, ""
@@ -524,7 +532,7 @@ def parse_kabanchik():
                 send_telegram_message_with_ai_button(
                     message_text,
                     full_link,
-                    full_link
+                    ai_response
                 )
     except Exception as e:
         print(f"DEBUG: parse_kabanchik error: {e}")
@@ -584,39 +592,8 @@ def handle_updates():
                     message_id = cb["message"]["message_id"]
                     config = ensure_config_exists()
 
-                    if data.startswith("copy_"):
-                        found_id = None
-                        for pid in project_ai_responses.keys():
-                            if str(hash(pid))[:10] == data.replace("copy_", ""):
-                                found_id = pid
-                                break
-                        
-                        if found_id:
-                            ai_text = project_ai_responses.get(found_id, "AI-ответ не найден")
-                            send_telegram_message(
-                                f"📋 <b>Скопируйте этот текст:</b>\n\n{ai_text}",
-                                {
-                                    "inline_keyboard": [
-                                        [{"text": "✅ Скопировал", "callback_data": "copied"}]
-                                    ]
-                                }
-                            )
-                            telegram_api("answerCallbackQuery", {
-                                "callback_query_id": cid,
-                                "text": "✅ Текст отправлен! Скопируй его."
-                            })
-
-                    elif data == "copied":
-                        telegram_api("deleteMessage", {
-                            "chat_id": chat_id,
-                            "message_id": message_id
-                        })
-                        telegram_api("answerCallbackQuery", {
-                            "callback_query_id": cid,
-                            "text": "Отлично! Ответ скопирован."
-                        })
-
-                    elif data == "open_settings":
+                    # Убираем обработку copy_ так как используется copy_text
+                    if data == "open_settings":
                         send_telegram_message(get_settings_text(config), create_settings_keyboard())
 
                     elif data == "open_budget":
