@@ -45,7 +45,9 @@ stats = {
     "orders_found": 0,
     "orders_sent": 0,
     "ai_generated": 0,
-    "start_time": time.time()
+    "start_time": time.time(),
+    "freelancehunt": 0,
+    "kabanchik": 0
 }
 
 # Ошибки
@@ -137,7 +139,7 @@ def load_config():
                 return json.load(f)
     except Exception as e:
         print(f"DEBUG: load_config error: {e}")
-        return None
+    return None
 
 
 def save_config(config):
@@ -472,24 +474,25 @@ def get_status_message():
     if not error_lines:
         error_lines.append("• Ошибок нет ✅")
     
-    # Последние ошибки (до 3 штук)
     last_errors = "\n".join([f"• {e}" for e in errors["last_errors"][-3:]]) if errors["last_errors"] else "• Нет"
-    
-    # Проверка статуса Gemini
     gemini_status = "✅ Доступен" if GEMINI_API_KEY else "❌ Не настроен"
+    
+    kiev_time = time.localtime(stats["start_time"] + 10800)
     
     return (
         f"📊 <b>СТАТУС БОТА</b>\n\n"
         f"{status}\n\n"
         f"📋 <b>Статистика:</b>\n"
-        f"• Найдено заказов: {stats['orders_found']}\n"
+        f"• Всего найдено: {stats['orders_found']}\n"
+        f"• Freelancehunt: {stats['freelancehunt']}\n"
+        f"• Kabanchik: {stats['kabanchik']}\n"
         f"• Отправлено в Telegram: {stats['orders_sent']}\n"
         f"• AI-ответов сгенерировано: {stats['ai_generated']}\n\n"
         f"⚠️ <b>Ошибки:</b>\n" + "\n".join(error_lines) + f"\n"
         f"📌 <b>Последние ошибки:</b>\n{last_errors}\n\n"
         f"🤖 <b>Gemini API:</b> {gemini_status}\n"
         f"⏱ <b>Работает:</b> {get_uptime()}\n"
-        f"🔄 <b>Запущен:</b> {time.strftime('%d.%m.%Y %H:%M', time.localtime(stats['start_time']))}"
+        f"🔄 <b>Запущен (Киев):</b> {time.strftime('%d.%m.%Y %H:%M', kiev_time)}"
     )
 
 
@@ -599,6 +602,7 @@ def parse_freelancehunt():
                 fh_sent_projects.add(project_id)
                 
                 stats["orders_found"] += 1
+                stats["freelancehunt"] += 1
 
                 pending_orders[project_id] = {
                     "title": title,
@@ -671,6 +675,7 @@ def parse_kabanchik():
 
                 kabanchik_sent_tasks.add(full_link)
                 stats["orders_found"] += 1
+                stats["kabanchik"] += 1
 
                 pending_orders[full_link] = {
                     "title": title,
