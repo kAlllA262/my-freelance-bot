@@ -7,8 +7,11 @@ import re
 from bs4 import BeautifulSoup
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from deep_translator import GoogleTranslator
 
+# Простой переводчик без внешних библиотек
+def translate_to_russian(text):
+    return text
+    
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 PORT = int(os.environ.get("PORT", 10000))
@@ -273,17 +276,6 @@ def extract_budget_and_currency(text):
         except:
             return None, ""
     return None, ""
-
-
-def translate_to_russian(text):
-    if not text:
-        return text
-    try:
-        return GoogleTranslator(source="auto", target="ru").translate(text)
-    except Exception as e:
-        print(f"DEBUG: translate error: {e}")
-        return text
-
 
 def is_russian_or_ukrainian(text):
     if not text:
