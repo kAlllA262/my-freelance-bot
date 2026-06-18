@@ -164,7 +164,6 @@ def send_telegram_message(text, reply_markup=None):
 
 
 def send_telegram_message_with_ai_button(text, button_url, project_id):
-    """Отправляет сообщение с двумя кнопками: Открыть и AI ответ"""
     if not BOT_TOKEN or not CHAT_ID:
         return None
 
@@ -187,7 +186,6 @@ def send_telegram_message_with_ai_button(text, button_url, project_id):
 
 
 def create_main_keyboard():
-    """Главное меню с кнопками в ряд по 2"""
     return {
         "inline_keyboard": [
             [
@@ -356,68 +354,14 @@ def detect_fh_category(text):
     return "Без категории"
 
 
-def detect_tags(title, description, category, budget):
-    """Определяет тэги для заказа"""
-    tags = []
-    text = f"{title} {description}".lower()
-    
-    category_tags = {
-        "Аудио/видео монтаж": "#монтаж",
-        "AI создание видео": "#AI",
-        "Видео реклама": "#реклама",
-        "Анимация": "#анимация",
-        "Обработка видео": "#обработка",
-        "Обработка фото": "#фото",
-        "Услуги диктора": "#озвучка"
-    }
-    
-    if category in category_tags:
-        tags.append(category_tags[category])
-    
-    if "срочно" in text or "срочный" in text:
-        tags.append("#срочный")
-    
-    if budget and budget > 200:
-        tags.append("#высокий_бюджет")
-    elif budget and budget > 100:
-        tags.append("#средний_бюджет")
-    
-    if "youtube" in text or "ютуб" in text:
-        tags.append("#youtube")
-    
-    if "ai" in text or "нейросеть" in text or "sora" in text:
-        tags.append("#AI")
-    
-    return " ".join(tags) if tags else "#без_тэгов"
+def format_quote(text):
+    """Превращает текст в цитату с '>' перед каждой строкой"""
+    lines = text.split('\n')
+    quoted_lines = [f"> {line}" for line in lines if line.strip()]
+    return '\n'.join(quoted_lines) if quoted_lines else "> (описание отсутствует)"
 
 
-def time_ago(published_date):
-    """Переводит дату публикации в формат 'X часов назад'"""
-    if not published_date:
-        return "Неизвестно"
-    
-    try:
-        if hasattr(published_date, 'timetuple'):
-            pub_time = time.mktime(published_date.timetuple())
-        else:
-            pub_time = published_date
-        
-        now = time.time()
-        diff = now - pub_time
-        
-        if diff < 60:
-            return "только что"
-        elif diff < 3600:
-            return f"{int(diff // 60)} минут назад"
-        elif diff < 86400:
-            return f"{int(diff // 3600)} часов назад"
-        else:
-            return f"{int(diff // 86400)} дней назад"
-    except:
-        return "Неизвестно"
-
-
-def format_freelancehunt_message(title, summary, category, budget=None, currency="", bids=0, published=None):
+def format_freelancehunt_message(title, summary, category, budget=None, currency=""):
     budget_text = "Не указана"
     if budget is not None:
         budget_text = f"{budget} {currency}".strip()
@@ -429,22 +373,19 @@ def format_freelancehunt_message(title, summary, category, budget=None, currency
     if title_translated:
         title_line += " <i>(переведен)</i>"
 
-    summary_line = f"┌─────────────────────\n📝 <b>Описание:</b>\n{clean_html_text(summary[:900])}"
+    category_formatted = f"<code>{clean_html_text(category)}</code>"
+
+    summary_quoted = format_quote(clean_html_text(summary[:900]))
     if summary_translated:
-        summary_line += "\n\n<i>(переведен)</i>"
-    
-    time_text = time_ago(published)
-    tags = detect_tags(title, summary, category, budget)
-    bids_text = f"👥 Откликов: {bids}" if bids else ""
+        summary_quoted += "\n\n<i>(переведен)</i>"
+
+    summary_line = f"┌─────────────────────\n📝 <b>Описание:</b>\n{summary_quoted}"
 
     return (
         f"🟡 <b>Freelancehunt</b>\n\n"
         f"{title_line}\n\n"
-        f"🏷 <b>Категория:</b> {clean_html_text(category)}\n"
-        f"💰 <b>Бюджет:</b> {clean_html_text(budget_text)}\n"
-        f"⏰ <b>Опубликовано:</b> {time_text}\n"
-        f"{bids_text}\n"
-        f"🏷️ <b>Тэги:</b> {tags}\n\n"
+        f"🏷 <b>Категория:</b> {category_formatted}\n"
+        f"💰 <b>Бюджет:</b> {clean_html_text(budget_text)}\n\n"
         f"{summary_line}"
     )
 
@@ -461,19 +402,19 @@ def format_kabanchik_message(title, category, description="Описание на
     if title_translated:
         title_line += " <i>(переведен)</i>"
 
-    description_line = f"┌─────────────────────\n📝 <b>Описание:</b>\n{clean_html_text(description)}"
+    category_formatted = f"<code>{clean_html_text(category)}</code>"
+
+    description_quoted = format_quote(clean_html_text(description))
     if description_translated:
-        description_line += "\n\n<i>(переведен)</i>"
-    
-    tags = detect_tags(title, description, category, budget)
+        description_quoted += "\n\n<i>(переведен)</i>"
+
+    description_line = f"┌─────────────────────\n📝 <b>Описание:</b>\n{description_quoted}"
 
     return (
         f"🟢 <b>Kabanchik</b>\n\n"
         f"{title_line}\n\n"
-        f"🏷 <b>Категория:</b> {clean_html_text(category)}\n"
-        f"💰 <b>Бюджет:</b> {clean_html_text(budget_text)}\n"
-        f"⏰ <b>Опубликовано:</b> только что\n"
-        f"🏷️ <b>Тэги:</b> {tags}\n\n"
+        f"🏷 <b>Категория:</b> {category_formatted}\n"
+        f"💰 <b>Бюджет:</b> {clean_html_text(budget_text)}\n\n"
         f"{description_line}"
     )
 
@@ -561,10 +502,6 @@ def parse_freelancehunt():
                 link = getattr(entry, "link", "")
                 summary = getattr(entry, "summary", "")
                 project_id = link or title
-                
-                bids = getattr(entry, "comments", "0")
-                if bids == "0":
-                    bids = getattr(entry, "bids", "0")
 
                 if project_id in fh_sent_projects:
                     continue
@@ -587,10 +524,8 @@ def parse_freelancehunt():
                     "category": category
                 }
 
-                published = getattr(entry, "published_parsed", None)
-
                 message_text = format_freelancehunt_message(
-                    title, summary, category, budget, currency, bids, published
+                    title, summary, category, budget, currency
                 )
 
                 send_telegram_message_with_ai_button(
