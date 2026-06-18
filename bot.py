@@ -5,14 +5,13 @@ import json
 import os
 import re
 from bs4 import BeautifulSoup
-from threading import Thread
+from threading import Thread, Semaphore
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 PORT = int(os.environ.get("PORT", 10000))
 
-# 🔑 API-ключ Gemini
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # Категории Freelancehunt
@@ -42,6 +41,10 @@ fh_sent_projects = set()
 kabanchik_sent_tasks = set()
 project_ai_responses = {}
 
+# Ограничитель запросов к Gemini (не больше 50 в минуту)
+ai_semaphore = Semaphore(50)
+last_ai_request_time = 0
+
 
 class HealthCheckServer(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -60,7 +63,6 @@ def run_web_server():
 
 def telegram_api(method, payload):
     if not BOT_TOKEN:
-        print("DEBUG: BOT_TOKEN not set")
         return None
     try:
         r = requests.post(
@@ -69,7 +71,7 @@ def telegram_api(method, payload):
             timeout=20
         )
         if r.status_code != 200:
-            print(f"DEBUG: Telegram API error {method}: {r.status_code} {r.text}")
+            print(f"DEBUG: Telegram API error {method}: {r.status_code}")
             return None
         return r.json()
     except Exception as e:
@@ -148,7 +150,6 @@ def clean_html_text(text):
 
 def send_telegram_message(text, reply_markup=None):
     if not BOT_TOKEN or not CHAT_ID:
-        print("DEBUG: BOT_TOKEN or CHAT_ID missing")
         return None
 
     payload = {
@@ -164,11 +165,9 @@ def send_telegram_message(text, reply_markup=None):
 
 
 def send_telegram_message_with_ai_button(text, button_text, button_url, project_id):
-    """Отправляет сообщение с двумя кнопками"""
     if not BOT_TOKEN or not CHAT_ID:
         return None
 
-    # Генерируем короткий ID для callback_data (не больше 64 символов)
     safe_id = str(hash(project_id))[:10]
     
     keyboard = {
@@ -419,12 +418,20 @@ def format_kabanchik_message(title, category, description="Описание на
 
 
 def generate_ai_response(project_title, project_description, project_category):
-    """Генерирует AI-ответ с помощью Gemini (новая модель)"""
+    """Генерирует AI-ответ с защитой от 429 ошибки"""
     if not GEMINI_API_KEY:
-        return "⚠️ AI-ответ недоступен: не настроен API-ключ Gemini"
+        return "⚠️ AI-ответ недоступен"
+    
+    global last_ai_request_time
+    
+    # Ждём минимум 1.2 секунды между запросами (50 запросов в минуту)
+    time_since_last = time.time() - last_ai_request_time
+    if time_since_last < 1.2:
+        time.sleep(1.2 - time_since_last)
+    
+    last_ai_request_time = time.time()
     
     try:
-        # Новая модель Gemini 2.0 Flash (бесплатная)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
         
         prompt = f"""
@@ -433,10 +440,7 @@ def generate_ai_response(project_title, project_description, project_category):
 Заголовок: {project_title}
 Описание: {project_description[:500]}
 
-Напиши краткий ответ (3-5 предложений) на русском языке, который:
-1. Показывает экспертизу в этой области
-2. Предлагает конкретные идеи
-3. Заканчивается призывом обсудить детали
+Краткий ответ (3-5 предложений) на русском языке.
 """
 
         payload = {
@@ -447,12 +451,16 @@ def generate_ai_response(project_title, project_description, project_category):
         
         response = requests.post(url, json=payload, timeout=30)
         
+        if response.status_code == 429:
+            print("DEBUG: Gemini 429 - превышен лимит, пропускаем")
+            return "⏳ Лимит AI-запросов. Попробуй позже."
+        
         if response.status_code == 200:
             data = response.json()
             ai_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-            return ai_text.strip() if ai_text else "⚠️ Пустой ответ от AI"
+            return ai_text.strip() if ai_text else "⚠️ Пустой ответ"
         else:
-            print(f"DEBUG: Gemini API error: {response.status_code}")
+            print(f"DEBUG: Gemini error: {response.status_code}")
             return f"⚠️ Ошибка API: {response.status_code}"
             
     except Exception as e:
@@ -498,7 +506,7 @@ def parse_freelancehunt():
                 category = detect_fh_category(text_for_filter)
                 fh_sent_projects.add(project_id)
 
-                # Генерируем AI-ответ
+                # Генерируем AI-ответ (с защитой от 429)
                 ai_response = generate_ai_response(title, summary, category)
                 project_ai_responses[project_id] = ai_response
 
@@ -584,7 +592,6 @@ def handle_updates():
             )
 
             if r.status_code != 200:
-                print(f"DEBUG: Ошибка getUpdates: {r.status_code}")
                 time.sleep(5)
                 continue
 
@@ -628,9 +635,7 @@ def handle_updates():
                     message_id = cb["message"]["message_id"]
                     config = ensure_config_exists()
 
-                    # Обработка кнопки "Скопировать AI-ответ"
                     if data.startswith("copy_"):
-                        # Ищем project_id по хешу
                         found_id = None
                         for pid in project_ai_responses.keys():
                             if str(hash(pid))[:10] == data.replace("copy_", ""):
@@ -641,7 +646,7 @@ def handle_updates():
                             ai_text = project_ai_responses.get(found_id, "AI-ответ не найден")
                             telegram_api("sendMessage", {
                                 "chat_id": chat_id,
-                                "text": f"📋 <b>AI-ОТВЕТ ДЛЯ ЗАКАЗЧИКА</b>\n\n{ai_text}",
+                                "text": f"📋 <b>AI-ОТВЕТ</b>\n\n{ai_text}",
                                 "parse_mode": "HTML"
                             })
                             telegram_api("answerCallbackQuery", {
@@ -772,9 +777,9 @@ def main():
         return
 
     if GEMINI_API_KEY:
-        print("✅ GEMINI_API_KEY найден! AI-ответы будут работать.")
+        print("✅ GEMINI_API_KEY найден!")
     else:
-        print("⚠️ GEMINI_API_KEY не задан! AI-ответы не будут работать.")
+        print("⚠️ GEMINI_API_KEY не задан!")
 
     ensure_config_exists()
     setup_bot_menu()
