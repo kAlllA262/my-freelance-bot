@@ -469,11 +469,10 @@ def generate_ai_response(project_title, project_description, project_category):
 
 
 def setup_bot_menu():
-    """Настраивает кнопку 'Меню' слева от гифки"""
     telegram_api("setMyCommands", {
         "commands": [
             {"command": "start", "description": "🏠 Главное меню"},
-            {"command": "menu", "description": "🏠 Главное меню"},
+            {"command": "menu", "description": "🏠 Открыть меню"},
             {"command": "settings", "description": "⚙️ Настройки"},
             {"command": "status", "description": "📊 Статус бота"},
             {"command": "help", "description": "❓ Помощь"}
@@ -621,8 +620,7 @@ def handle_updates():
                     if text == "/start" or text == "/menu":
                         send_telegram_message("🏠 <b>ГЛАВНОЕ МЕНЮ</b>\n\nВыберите действие:", create_main_keyboard())
                     elif text == "/settings":
-                        config = ensure_config_exists()
-                        send_telegram_message(get_settings_text(config), create_settings_keyboard())
+                        send_telegram_message("⚙️ <b>Настройки</b>", create_settings_keyboard())
                     elif text == "/help":
                         send_telegram_message(
                             "📚 <b>ДОСТУПНЫЕ ДЕЙСТВИЯ:</b>\n\n"
@@ -695,7 +693,7 @@ def handle_updates():
                             })
 
                     elif data == "open_settings":
-                        send_telegram_message(get_settings_text(config), create_settings_keyboard())
+                        send_telegram_message("⚙️ <b>Настройки</b>", create_settings_keyboard())
 
                     elif data == "open_budget":
                         send_telegram_message("💰 <b>Выберите минимальный бюджет:</b>", create_budget_keyboard())
@@ -704,7 +702,7 @@ def handle_updates():
                         send_telegram_message("🔍 <b>Выберите ключевое слово:</b>", create_keywords_keyboard())
 
                     elif data == "back_to_settings":
-                        send_telegram_message(get_settings_text(config), create_settings_keyboard())
+                        send_telegram_message("⚙️ <b>Настройки</b>", create_settings_keyboard())
 
                     elif data == "show_fh_categories":
                         text = "📁 <b>Freelancehunt категории:</b>\n\n"
