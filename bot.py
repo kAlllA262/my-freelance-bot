@@ -16,7 +16,6 @@ PORT = int(os.environ.get("PORT", 10000))
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# --- FREELANCEHUNT ---
 FH_CATEGORIES = {
     "ai_video": "https://freelancehunt.com/projects.rss?skills%5B%5D=192",
     "animation": "https://freelancehunt.com/projects.rss?skills%5B%5D=91",
@@ -30,7 +29,6 @@ FH_CATEGORIES = {
 
 FH_INTERVAL = 60
 
-# --- KABANCHIK ---
 KABANCHIK_URLS = [
     "https://kabanchik.ua/projects/category/ai-poslugi",
     "https://kabanchik.ua/projects/category/foto-i-video-posluhy",
@@ -38,7 +36,6 @@ KABANCHIK_URLS = [
 ]
 KABANCHIK_INTERVAL = 30
 
-# --- WEBLANCER ---
 WEBLANCER_URL = "https://www.weblancer.net/projects/"
 WEBLANCER_INTERVAL = 60
 
@@ -249,7 +246,7 @@ def send_telegram_message_with_ai_button(text, button_url, project_id):
         print("❌ BOT_TOKEN или CHAT_ID не заданы!")
         return None
 
-    ai_text = ai_responses_cache.get(project_id, "AI-ответ ещё не сгенерирован")
+    ai_text = ai_responses_cache.get(project_id, "AI-ответ временно отключен")
     ai_text_short = ai_text[:250]
 
     keyboard = {
@@ -289,6 +286,25 @@ def create_main_keyboard():
             [
                 {"text": "📊 Статус бота", "callback_data": "bot_status"},
                 {"text": "❓ Help", "callback_data": "bot_help"}
+            ]
+        ]
+    }
+
+
+def create_help_keyboard():
+    """Клавиатура для меню помощи"""
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "⚙️ Настройки", "callback_data": "open_settings"},
+                {"text": "📊 Статус бота", "callback_data": "bot_status"}
+            ],
+            [
+                {"text": "🗑️ Очистить кэш", "callback_data": "clear_cache"},
+                {"text": "🔄 Перезапуск", "callback_data": "bot_restart"}
+            ],
+            [
+                {"text": "🏠 Главное меню", "callback_data": "show_main_menu"}
             ]
         ]
     }
@@ -586,57 +602,10 @@ def get_status_message():
     )
 
 
+# ⚠️ AI-ответы ВРЕМЕННО ОТКЛЮЧЕНЫ для экономии ресурсов
 def generate_ai_response(project_title, project_description, project_category):
-    if not GEMINI_API_KEY:
-        return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
-
-Я специализируюсь в области {project_category} и имею успешный опыт.
-
-Жду вашего ответа для обсуждения деталей!"""
-    
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
-        
-        prompt = f"""
-Ты — профессиональный фрилансер в сфере {project_category}.
-Напиши ПЕРСОНАЛЬНЫЙ продающий ответ на этот конкретный заказ:
-
-Заголовок заказа: {project_title}
-Описание заказа: {project_description[:500]}
-
-Ответ: 3-5 предложений на русском языке, кратко и по делу.
-"""
-
-        payload = {
-            "contents": [{
-                "parts": [{"text": prompt}]
-            }]
-        }
-        
-        response = requests.post(url, json=payload, timeout=30)
-        
-        if response.status_code == 200:
-            data = response.json()
-            ai_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-            if ai_text:
-                return ai_text.strip()
-        
-        if response.status_code == 429:
-            log_error("gemini", "лимит превышен (429)")
-        
-        return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
-
-Я специализируюсь в области {project_category} и имею успешный опыт.
-
-Готов обсудить детали. Жду вашего ответа!"""
-            
-    except Exception as e:
-        log_error("gemini", str(e)[:30])
-        return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
-
-Я специализируюсь в области {project_category} и имею опыт в таких проектах.
-
-Жду вашего ответа для обсуждения деталей!"""
+    """AI-ответ временно отключен для экономии ресурсов"""
+    return "🤖 AI-ответ временно отключен. Включи в настройках."
 
 
 def setup_bot_menu():
@@ -787,8 +756,7 @@ def parse_weblancer():
     print(f"🔍 Начинаю парсинг Weblancer...")
     
     try:
-        # Используем поиск с ключевыми словами из WEBLANCER_KEYWORDS
-        for keyword in WEBLANCER_KEYWORDS[:3]:  # Ограничим 3 ключевыми словами для скорости
+        for keyword in WEBLANCER_KEYWORDS[:3]:
             try:
                 search_url = f"{WEBLANCER_URL}?q={keyword.replace(' ', '+')}"
                 response = requests.get(search_url, timeout=30, headers={
@@ -800,7 +768,6 @@ def parse_weblancer():
                 
                 soup = BeautifulSoup(response.text, "html.parser")
                 
-                # Ищем заказы — адаптируй под актуальную структуру Weblancer
                 for project in soup.find_all("div", class_="container-fluid"):
                     try:
                         title_elem = project.find("div", class_="title")
@@ -856,8 +823,7 @@ def parse_weblancer():
                         send_telegram_message_with_ai_button(
                             message_text,
                             link,
-                            project_id
-                        )
+                            project_id                        )
                         
                     except Exception as e:
                         continue
@@ -903,9 +869,10 @@ def handle_updates():
                             "📚 <b>ДОСТУПНЫЕ ДЕЙСТВИЯ:</b>\n\n"
                             "⚙️ Настройки\n"
                             "📊 Статус бота\n"
-                            "❓ Help\n"
-                            "🔄 Перезапуск",
-                            create_main_keyboard()
+                            "🗑️ Очистить кэш\n"
+                            "🔄 Перезапуск\n\n"
+                            "❓ Помощь — это меню",
+                            create_help_keyboard()
                         )
                     elif text == "/status":
                         send_telegram_message(get_status_message())
@@ -918,7 +885,27 @@ def handle_updates():
                     message_id = cb["message"]["message_id"]
                     config = ensure_config_exists()
 
-                    if data == "open_settings":
+                    if data == "clear_cache":
+                        count = len(ai_responses_cache)
+                        ai_responses_cache.clear()
+                        send_telegram_message(
+                            f"🗑️ <b>Кэш AI-ответов очищен!</b>\n\nУдалено: {count} ответов"
+                        )
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": f"✅ Удалено {count} ответов",
+                            "show_alert": False
+                        })
+
+                    elif data == "show_main_menu":
+                        send_telegram_message("🏠 <b>ГЛАВНОЕ МЕНЮ</b>\n\nВыберите действие:", create_main_keyboard())
+                        telegram_api("answerCallbackQuery", {
+                            "callback_query_id": cid,
+                            "text": "🏠 Главное меню",
+                            "show_alert": False
+                        })
+
+                    elif data == "open_settings":
                         send_telegram_message("⚙️ <b>Настройки</b>", create_settings_keyboard())
 
                     elif data == "open_budget":
@@ -988,9 +975,10 @@ def handle_updates():
                             "📚 <b>ДОСТУПНЫЕ ДЕЙСТВИЯ:</b>\n\n"
                             "⚙️ Настройки\n"
                             "📊 Статус бота\n"
-                            "❓ Help\n"
-                            "🔄 Перезапуск",
-                            create_main_keyboard()
+                            "🗑️ Очистить кэш\n"
+                            "🔄 Перезапуск\n\n"
+                            "❓ Помощь — это меню",
+                            create_help_keyboard()
                         )
 
                     elif data == "bot_restart":
@@ -1050,7 +1038,7 @@ def main():
             print(f"⚠️ Ошибка удаления webhook: {e}")
 
         if GEMINI_API_KEY:
-            print("✅ GEMINI_API_KEY найден!")
+            print("✅ GEMINI_API_KEY найден! (AI-ответы отключены)")
         else:
             print("⚠️ GEMINI_API_KEY не задан!")
 
