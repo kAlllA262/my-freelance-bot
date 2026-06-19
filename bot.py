@@ -91,6 +91,52 @@ errors = {
     "last_errors": []
 }
 
+# Статистика проверок
+check_stats = {
+    "freelancehunt": {
+        "last_check": None,
+        "last_count": 0,
+        "total_checks": 0,
+        "categories": {}
+    },
+    "kabanchik": {
+        "last_check": None,
+        "last_count": 0,
+        "total_checks": 0,
+        "categories": {}
+    },
+    "weblancer": {
+        "last_check": None,
+        "last_count": 0,
+        "total_checks": 0,
+        "keywords": {}
+    }
+}
+
+def update_check_stats(platform, category, count):
+    """Обновляет статистику проверок"""
+    kiev_time = time.localtime(time.time() + 10800)
+    time_str = time.strftime('%d.%m.%Y %H:%M', kiev_time)
+    
+    if platform == "freelancehunt":
+        check_stats["freelancehunt"]["last_check"] = time_str
+        check_stats["freelancehunt"]["total_checks"] += 1
+        check_stats["freelancehunt"]["last_count"] += count
+        if category:
+            check_stats["freelancehunt"]["categories"][category] = check_stats["freelancehunt"]["categories"].get(category, 0) + count
+    elif platform == "kabanchik":
+        check_stats["kabanchik"]["last_check"] = time_str
+        check_stats["kabanchik"]["total_checks"] += 1
+        check_stats["kabanchik"]["last_count"] += count
+        if category:
+            check_stats["kabanchik"]["categories"][category] = check_stats["kabanchik"]["categories"].get(category, 0) + count
+    elif platform == "weblancer":
+        check_stats["weblancer"]["last_check"] = time_str
+        check_stats["weblancer"]["total_checks"] += 1
+        check_stats["weblancer"]["last_count"] += count
+        if category:
+            check_stats["weblancer"]["keywords"][category] = check_stats["weblancer"]["keywords"].get(category, 0) + count
+
 def log_error(error_type, message):
     """Записывает ошибку с Киевским временем (UTC+3)"""
     kiev_time = time.localtime(time.time() + 10800)
@@ -584,6 +630,45 @@ def get_status_message():
     
     kiev_time = time.localtime(stats["start_time"] + 10800)
     
+    # Формируем информацию о проверках
+    checks_text = ""
+    
+    # Freelancehunt
+    fh = check_stats["freelancehunt"]
+    if fh["last_check"]:
+        checks_text += f"• Freelancehunt: {fh['last_check']} (проверок: {fh['total_checks']}, найдено: {fh['last_count']} заказов)\n"
+        if fh["categories"]:
+            active_cats = {k: v for k, v in fh["categories"].items() if v > 0}
+            if active_cats:
+                for cat, count in active_cats.items():
+                    checks_text += f"  - {cat}: {count} заказов\n"
+    else:
+        checks_text += "• Freelancehunt: ожидание первой проверки...\n"
+    
+    # Kabanchik
+    kb = check_stats["kabanchik"]
+    if kb["last_check"]:
+        checks_text += f"• Kabanchik: {kb['last_check']} (проверок: {kb['total_checks']}, найдено: {kb['last_count']} заказов)\n"
+        if kb["categories"]:
+            active_cats = {k: v for k, v in kb["categories"].items() if v > 0}
+            if active_cats:
+                for cat, count in active_cats.items():
+                    checks_text += f"  - {cat}: {count} заказов\n"
+    else:
+        checks_text += "• Kabanchik: ожидание первой проверки...\n"
+    
+    # Weblancer
+    wl = check_stats["weblancer"]
+    if wl["last_check"]:
+        checks_text += f"• Weblancer: {wl['last_check']} (проверок: {wl['total_checks']}, найдено: {wl['last_count']} заказов)\n"
+        if wl["keywords"]:
+            active_kws = {k: v for k, v in wl["keywords"].items() if v > 0}
+            if active_kws:
+                for kw, count in active_kws.items():
+                    checks_text += f"  - Поиск '{kw}': {count} заказов\n"
+    else:
+        checks_text += "• Weblancer: ожидание первой проверки...\n"
+    
     return (
         f"📊 <b>СТАТУС БОТА</b>\n\n"
         f"{status}\n\n"
@@ -594,6 +679,7 @@ def get_status_message():
         f"• Weblancer: {stats['weblancer']}\n"
         f"• Отправлено в Telegram: {stats['orders_sent']}\n"
         f"• AI-ответов сгенерировано: {stats['ai_generated']}\n\n"
+        f"🔄 <b>Последние проверки:</b>\n{checks_text}\n"
         f"⚠️ <b>Ошибки:</b>\n" + "\n".join(error_lines) + f"\n"
         f"📌 <b>Последние ошибки:</b>\n{last_errors}\n\n"
         f"🤖 <b>Gemini API:</b> {gemini_status}\n"
@@ -624,6 +710,8 @@ def parse_freelancehunt():
     config = ensure_config_exists()
     enabled_keywords = config["freelancehunt"]["keywords"]
     min_budget = config["freelancehunt"]["min_budget"]
+    
+    total_in_category = 0
 
     for category_name, category_url in FH_CATEGORIES.items():
         try:
@@ -634,6 +722,8 @@ def parse_freelancehunt():
             if len(feed.entries) == 0:
                 print(f"   ⚠️ RSS пустой! Проверь URL: {category_url}")
                 continue
+            
+            count_in_category = 0
             
             for entry in feed.entries:
                 title = getattr(entry, "title", "")
@@ -659,6 +749,8 @@ def parse_freelancehunt():
                     continue
 
                 print(f"      ✅ ОТПРАВЛЯЮ!")
+                count_in_category += 1
+                total_in_category += 1
                 
                 category = detect_fh_category(text_for_filter)
                 fh_sent_projects.add(project_id)
@@ -685,14 +777,21 @@ def parse_freelancehunt():
                     link,
                     project_id
                 )
+            
+            update_check_stats("freelancehunt", category_name, count_in_category)
+            
         except Exception as e:
             log_error("freelancehunt", str(e)[:30])
             print(f"   ❌ Ошибка {category_name}: {e}")
+    
+    # Обновляем общую статистику для Freelancehunt
+    check_stats["freelancehunt"]["last_count"] = total_in_category
 
 
 def parse_kabanchik():
     print(f"🔍 Начинаю парсинг Kabanchik...")
     config = ensure_config_exists()
+    total_in_category = 0
 
     for url in KABANCHIK_URLS:
         try:
@@ -705,6 +804,8 @@ def parse_kabanchik():
                 
             print(f"   ✅ Статус 200, парсим...")
             soup = BeautifulSoup(response.text, "html.parser")
+            
+            count_in_category = 0
 
             for a in soup.find_all("a", href=True):
                 href = a["href"]
@@ -737,6 +838,8 @@ def parse_kabanchik():
                 kabanchik_sent_tasks.add(full_link)
                 stats["orders_found"] += 1
                 stats["kabanchik"] += 1
+                count_in_category += 1
+                total_in_category += 1
 
                 pending_orders[full_link] = {
                     "title": title,
@@ -757,9 +860,14 @@ def parse_kabanchik():
                     full_link,
                     full_link
                 )
+            
+            update_check_stats("kabanchik", category, count_in_category)
+            
         except Exception as e:
             log_error("kabanchik", str(e)[:30])
             print(f"   ❌ Ошибка: {e}")
+    
+    check_stats["kabanchik"]["last_count"] = total_in_category
 
 
 def parse_weblancer():
@@ -767,6 +875,7 @@ def parse_weblancer():
     config = ensure_config_exists()
     enabled_keywords = config["freelancehunt"]["keywords"]
     min_budget = config["freelancehunt"]["min_budget"]
+    total_in_keyword = 0
     
     try:
         for keyword in WEBLANCER_KEYWORDS[:3]:
@@ -782,6 +891,7 @@ def parse_weblancer():
                     continue
                 
                 soup = BeautifulSoup(response.text, "html.parser")
+                count_in_keyword = 0
                 
                 for project in soup.find_all("div", class_="container-fluid"):
                     try:
@@ -820,6 +930,8 @@ def parse_weblancer():
                         weblancer_sent_projects.add(project_id)
                         stats["orders_found"] += 1
                         stats["weblancer"] += 1
+                        count_in_keyword += 1
+                        total_in_keyword += 1
                         
                         pending_orders[project_id] = {
                             "title": title,
@@ -843,6 +955,8 @@ def parse_weblancer():
                         
                     except Exception as e:
                         continue
+                
+                update_check_stats("weblancer", keyword, count_in_keyword)
                         
             except Exception as e:
                 print(f"   ⚠️ Ошибка поиска по ключевому слову {keyword}: {e}")
@@ -851,6 +965,8 @@ def parse_weblancer():
     except Exception as e:
         log_error("weblancer", str(e)[:30])
         print(f"   ❌ Ошибка Weblancer: {e}")
+    
+    check_stats["weblancer"]["last_count"] = total_in_keyword
 
 
 def handle_updates():
