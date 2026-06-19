@@ -602,7 +602,7 @@ def get_status_message():
     )
 
 
-# ⚠️ AI-ответы ВРЕМЕННО ОТКЛЮЧЕНЫ для экономии ресурсов
+# ⚠️ AI-ответы ВРЕМЕННО ОТКЛЮЧЕНЫ
 def generate_ai_response(project_title, project_description, project_category):
     """AI-ответ временно отключен для экономии ресурсов"""
     return "🤖 AI-ответ временно отключен. Включи в настройках."
@@ -620,32 +620,46 @@ def setup_bot_menu():
 
 
 def parse_freelancehunt():
+    print(f"🔍 Начинаю парсинг Freelancehunt...")
     config = ensure_config_exists()
     enabled_keywords = config["freelancehunt"]["keywords"]
     min_budget = config["freelancehunt"]["min_budget"]
 
     for category_name, category_url in FH_CATEGORIES.items():
         try:
+            print(f"   📂 Категория: {category_name}")
             feed = feedparser.parse(category_url)
+            print(f"   📊 Найдено записей: {len(feed.entries)}")
+            
+            if len(feed.entries) == 0:
+                print(f"   ⚠️ RSS пустой! Проверь URL: {category_url}")
+                continue
             
             for entry in feed.entries:
                 title = getattr(entry, "title", "")
                 link = getattr(entry, "link", "")
                 summary = getattr(entry, "summary", "")
                 project_id = link or title
+                
+                print(f"      📌 {title[:40]}...")
 
                 if project_id in fh_sent_projects:
+                    print(f"      ⏭️ Уже отправлен")
                     continue
 
                 text_for_filter = f"{title} {summary}"
                 budget, currency = extract_budget_and_currency(text_for_filter)
 
                 if min_budget and budget is not None and budget < min_budget:
+                    print(f"      ⏭️ Бюджет {budget} < {min_budget}")
                     continue
 
                 if enabled_keywords and not matches_keywords(text_for_filter, enabled_keywords):
+                    print(f"      ⏭️ Нет ключевых слов")
                     continue
 
+                print(f"      ✅ ОТПРАВЛЯЮ!")
+                
                 category = detect_fh_category(text_for_filter)
                 fh_sent_projects.add(project_id)
                 
@@ -673,23 +687,23 @@ def parse_freelancehunt():
                 )
         except Exception as e:
             log_error("freelancehunt", str(e)[:30])
-            print(f"DEBUG: parse_freelancehunt error for {category_name}: {e}")
+            print(f"   ❌ Ошибка {category_name}: {e}")
 
 
 def parse_kabanchik():
+    print(f"🔍 Начинаю парсинг Kabanchik...")
     config = ensure_config_exists()
 
-    try:
-        for url in KABANCHIK_URLS:
-            try:
-                response = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
-            except requests.exceptions.Timeout:
-                log_error("kabanchik", "таймаут")
+    for url in KABANCHIK_URLS:
+        try:
+            print(f"   📂 URL: {url}")
+            response = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+            
+            if response.status_code != 200:
+                print(f"   ⚠️ Ошибка {response.status_code}")
                 continue
                 
-            if response.status_code != 200:
-                continue
-
+            print(f"   ✅ Статус 200, парсим...")
             soup = BeautifulSoup(response.text, "html.parser")
 
             for a in soup.find_all("a", href=True):
@@ -743,27 +757,28 @@ def parse_kabanchik():
                     full_link,
                     full_link
                 )
-    except Exception as e:
-        log_error("kabanchik", str(e)[:30])
+        except Exception as e:
+            log_error("kabanchik", str(e)[:30])
+            print(f"   ❌ Ошибка: {e}")
 
 
 def parse_weblancer():
-    """Парсит заказы с Weblancer"""
+    print(f"🔍 Начинаю парсинг Weblancer...")
     config = ensure_config_exists()
     enabled_keywords = config["freelancehunt"]["keywords"]
     min_budget = config["freelancehunt"]["min_budget"]
-
-    print(f"🔍 Начинаю парсинг Weblancer...")
     
     try:
         for keyword in WEBLANCER_KEYWORDS[:3]:
             try:
                 search_url = f"{WEBLANCER_URL}?q={keyword.replace(' ', '+')}"
+                print(f"   📂 Поиск: {keyword}")
                 response = requests.get(search_url, timeout=30, headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
                 })
                 
                 if response.status_code != 200:
+                    print(f"   ⚠️ Ошибка {response.status_code}")
                     continue
                 
                 soup = BeautifulSoup(response.text, "html.parser")
@@ -823,7 +838,8 @@ def parse_weblancer():
                         send_telegram_message_with_ai_button(
                             message_text,
                             link,
-                            project_id                        )
+                            project_id
+                        )
                         
                     except Exception as e:
                         continue
