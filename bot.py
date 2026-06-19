@@ -60,6 +60,23 @@ errors = {
     "last_errors": []
 }
 
+# Функция для логирования ошибок с Киевским временем
+def log_error(error_type, message):
+    """Записывает ошибку с Киевским временем (UTC+3)"""
+    kiev_time = time.localtime(time.time() + 10800)  # UTC+3
+    time_str = time.strftime('%H:%M', kiev_time)
+    
+    if error_type in errors:
+        errors[error_type] += 1
+    else:
+        errors[error_type] = 1
+    
+    errors["last_errors"].append(f"{error_type.capitalize()}: {time_str} - {message}")
+    
+    # Оставляем только последние 10 ошибок
+    if len(errors["last_errors"]) > 10:
+        errors["last_errors"] = errors["last_errors"][-10:]
+
 # Функция для генерации короткого ID
 def get_short_id(project_id):
     """Генерирует короткий ID для callback_data"""
@@ -149,7 +166,7 @@ def load_config():
                 return json.load(f)
     except Exception as e:
         print(f"DEBUG: load_config error: {e}")
-    return None
+        return None
 
 
 def save_config(config):
@@ -193,8 +210,7 @@ def send_telegram_message(text, reply_markup=None):
     print(f"📤 Отправка сообщения... (длина: {len(text)})")
     result = telegram_api("sendMessage", payload)
     if result is None:
-        errors["telegram"] += 1
-        errors["last_errors"].append(f"Telegram: {time.strftime('%H:%M')} - не удалось отправить сообщение")
+        log_error("telegram", "не удалось отправить сообщение")
         print("❌ Не удалось отправить сообщение!")
     else:
         print(f"✅ Сообщение отправлено! ID: {result.get('result', {}).get('message_id', 'unknown')}")
@@ -234,8 +250,7 @@ def send_telegram_message_with_ai_button(text, button_url, project_id):
     
     result = telegram_api("sendMessage", payload)
     if result is None:
-        errors["telegram"] += 1
-        errors["last_errors"].append(f"Telegram: {time.strftime('%H:%M')} - не удалось отправить кнопку")
+        log_error("telegram", "не удалось отправить кнопку")
         print(f"   ❌ Ошибка отправки!")
     else:
         message_id = result.get('result', {}).get('message_id', 'unknown')
@@ -568,8 +583,7 @@ def generate_ai_response(project_title, project_description, project_category):
                 return ai_text.strip()
         
         if response.status_code == 429:
-            errors["gemini"] += 1
-            errors["last_errors"].append(f"Gemini: {time.strftime('%H:%M')} - лимит превышен (429)")
+            log_error("gemini", "лимит превышен (429)")
         
         print(f"DEBUG: Gemini error: {response.status_code}")
         return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
@@ -579,8 +593,7 @@ def generate_ai_response(project_title, project_description, project_category):
 Готов обсудить детали. Жду вашего ответа!"""
             
     except Exception as e:
-        errors["gemini"] += 1
-        errors["last_errors"].append(f"Gemini: {time.strftime('%H:%M')} - {str(e)[:30]}")
+        log_error("gemini", str(e)[:30])
         print(f"DEBUG: AI generation error: {e}")
         return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
 
@@ -674,8 +687,7 @@ def parse_freelancehunt():
                     print(f"      ❌ Не отправлено в Telegram")
                     
         except Exception as e:
-            errors["freelancehunt"] += 1
-            errors["last_errors"].append(f"Freelancehunt: {time.strftime('%H:%M')} - {str(e)[:30]}")
+            log_error("freelancehunt", str(e)[:30])
             print(f"   ❌ Ошибка {category_name}: {e}")
             import traceback
             traceback.print_exc()
@@ -689,8 +701,7 @@ def parse_kabanchik():
             try:
                 response = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
             except requests.exceptions.Timeout:
-                errors["kabanchik"] += 1
-                errors["last_errors"].append(f"Kabanchik: {time.strftime('%H:%M')} - таймаут")
+                log_error("kabanchik", "таймаут")
                 print(f"DEBUG: Kabanchik timeout for {url}")
                 continue
                 
@@ -756,8 +767,7 @@ def parse_kabanchik():
                 else:
                     print(f"      ❌ Не отправлено в Telegram")
     except Exception as e:
-        errors["kabanchik"] += 1
-        errors["last_errors"].append(f"Kabanchik: {time.strftime('%H:%M')} - {str(e)[:30]}")
+        log_error("kabanchik", str(e)[:30])
         print(f"DEBUG: parse_kabanchik error: {e}")
 
 
