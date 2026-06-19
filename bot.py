@@ -27,6 +27,17 @@ FH_CATEGORIES = {
     "voice_over": "https://freelancehunt.com/projects.rss?skills%5B%5D=143",
 }
 
+FH_CATEGORY_NAMES = {
+    "ai_video": "AI создание видео",
+    "animation": "Анимация",
+    "video_audio": "Аудио/видео монтаж",
+    "video_ads": "Видео реклама",
+    "audio_processing": "Обработка аудио",
+    "video_processing": "Обработка видео",
+    "photo_processing": "Обработка фото",
+    "voice_over": "Услуги диктора"
+}
+
 FH_INTERVAL = 60
 
 KABANCHIK_URLS = [
@@ -630,44 +641,55 @@ def get_status_message():
     
     kiev_time = time.localtime(stats["start_time"] + 10800)
     
-    # Формируем информацию о проверках
-    checks_text = ""
+    # Формируем информацию о проверках с цитатами и отступами
+    checks_lines = []
     
     # Freelancehunt
     fh = check_stats["freelancehunt"]
     if fh["last_check"]:
-        checks_text += f"• Freelancehunt: {fh['last_check']} (проверок: {fh['total_checks']}, найдено: {fh['last_count']} заказов)\n"
+        checks_lines.append(f"> <b>Freelancehunt:</b> {fh['last_check']}")
+        checks_lines.append(f"> (проверок: {fh['total_checks']}, найдено: {fh['last_count']} заказов)")
         if fh["categories"]:
             active_cats = {k: v for k, v in fh["categories"].items() if v > 0}
             if active_cats:
                 for cat, count in active_cats.items():
-                    checks_text += f"  - {cat}: {count} заказов\n"
+                    checks_lines.append(f">   - {cat}: {count} заказов")
+        checks_lines.append("")  # Пустая строка для отступа
     else:
-        checks_text += "• Freelancehunt: ожидание первой проверки...\n"
+        checks_lines.append("> Freelancehunt: ожидание первой проверки...")
+        checks_lines.append("")
     
     # Kabanchik
     kb = check_stats["kabanchik"]
     if kb["last_check"]:
-        checks_text += f"• Kabanchik: {kb['last_check']} (проверок: {kb['total_checks']}, найдено: {kb['last_count']} заказов)\n"
+        checks_lines.append(f"> <b>Kabanchik:</b> {kb['last_check']}")
+        checks_lines.append(f"> (проверок: {kb['total_checks']}, найдено: {kb['last_count']} заказов)")
         if kb["categories"]:
             active_cats = {k: v for k, v in kb["categories"].items() if v > 0}
             if active_cats:
                 for cat, count in active_cats.items():
-                    checks_text += f"  - {cat}: {count} заказов\n"
+                    checks_lines.append(f">   - {cat}: {count} заказов")
+        checks_lines.append("")
     else:
-        checks_text += "• Kabanchik: ожидание первой проверки...\n"
+        checks_lines.append("> Kabanchik: ожидание первой проверки...")
+        checks_lines.append("")
     
     # Weblancer
     wl = check_stats["weblancer"]
     if wl["last_check"]:
-        checks_text += f"• Weblancer: {wl['last_check']} (проверок: {wl['total_checks']}, найдено: {wl['last_count']} заказов)\n"
+        checks_lines.append(f"> <b>Weblancer:</b> {wl['last_check']}")
+        checks_lines.append(f"> (проверок: {wl['total_checks']}, найдено: {wl['last_count']} заказов)")
         if wl["keywords"]:
             active_kws = {k: v for k, v in wl["keywords"].items() if v > 0}
             if active_kws:
                 for kw, count in active_kws.items():
-                    checks_text += f"  - Поиск '{kw}': {count} заказов\n"
+                    checks_lines.append(f">   - Поиск '{kw}': {count} заказов")
+        checks_lines.append("")
     else:
-        checks_text += "• Weblancer: ожидание первой проверки...\n"
+        checks_lines.append("> Weblancer: ожидание первой проверки...")
+        checks_lines.append("")
+    
+    checks_text = "\n".join(checks_lines)
     
     return (
         f"📊 <b>СТАТУС БОТА</b>\n\n"
@@ -679,7 +701,8 @@ def get_status_message():
         f"• Weblancer: {stats['weblancer']}\n"
         f"• Отправлено в Telegram: {stats['orders_sent']}\n"
         f"• AI-ответов сгенерировано: {stats['ai_generated']}\n\n"
-        f"🔄 <b>Последние проверки:</b>\n{checks_text}\n"
+        f"🔄 <b>Последние проверки:</b>\n"
+        f"{checks_text}\n"
         f"⚠️ <b>Ошибки:</b>\n" + "\n".join(error_lines) + f"\n"
         f"📌 <b>Последние ошибки:</b>\n{last_errors}\n\n"
         f"🤖 <b>Gemini API:</b> {gemini_status}\n"
@@ -713,8 +736,9 @@ def parse_freelancehunt():
     
     total_in_category = 0
 
-    for category_name, category_url in FH_CATEGORIES.items():
+    for category_key, category_url in FH_CATEGORIES.items():
         try:
+            category_name = FH_CATEGORY_NAMES.get(category_key, category_key)
             print(f"   📂 Категория: {category_name}")
             feed = feedparser.parse(category_url)
             print(f"   📊 Найдено записей: {len(feed.entries)}")
@@ -784,7 +808,6 @@ def parse_freelancehunt():
             log_error("freelancehunt", str(e)[:30])
             print(f"   ❌ Ошибка {category_name}: {e}")
     
-    # Обновляем общую статистику для Freelancehunt
     check_stats["freelancehunt"]["last_count"] = total_in_category
 
 
@@ -861,7 +884,11 @@ def parse_kabanchik():
                     full_link
                 )
             
-            update_check_stats("kabanchik", category, count_in_category)
+            # ✅ Исправленная строка — проверяем, определена ли переменная category
+            if 'category' in locals():
+                update_check_stats("kabanchik", category, count_in_category)
+            else:
+                update_check_stats("kabanchik", "Неизвестно", count_in_category)
             
         except Exception as e:
             log_error("kabanchik", str(e)[:30])
