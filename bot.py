@@ -88,10 +88,11 @@ def telegram_api(method, payload):
             timeout=20
         )
         if r.status_code != 200:
+            print(f"❌ Telegram API error {method}: {r.status_code} {r.text[:200]}")
             return None
         return r.json()
     except Exception as e:
-        print(f"DEBUG: Telegram API exception {method}: {e}")
+        print(f"❌ Telegram API exception {method}: {e}")
         return None
 
 
@@ -171,6 +172,7 @@ def clean_html_text(text):
 
 def send_telegram_message(text, reply_markup=None):
     if not BOT_TOKEN or not CHAT_ID:
+        print("❌ BOT_TOKEN или CHAT_ID не заданы!")
         return None
 
     payload = {
@@ -182,16 +184,24 @@ def send_telegram_message(text, reply_markup=None):
     if reply_markup:
         payload["reply_markup"] = reply_markup
 
+    print(f"📤 Отправка сообщения... (длина: {len(text)})")
     result = telegram_api("sendMessage", payload)
     if result is None:
         errors["telegram"] += 1
         errors["last_errors"].append(f"Telegram: {time.strftime('%H:%M')} - не удалось отправить сообщение")
+        print("❌ Не удалось отправить сообщение!")
+    else:
+        print(f"✅ Сообщение отправлено! ID: {result.get('result', {}).get('message_id', 'unknown')}")
     return result
 
 
 def send_telegram_message_with_ai_button(text, button_url, project_id):
     if not BOT_TOKEN or not CHAT_ID:
+        print("❌ BOT_TOKEN или CHAT_ID не заданы!")
         return None
+
+    print(f"📤 Отправка с кнопками для: {project_id[:30]}...")
+    print(f"   CHAT_ID: {CHAT_ID}")
 
     keyboard = {
         "inline_keyboard": [
@@ -211,10 +221,16 @@ def send_telegram_message_with_ai_button(text, button_url, project_id):
         "parse_mode": "HTML",
         "reply_markup": keyboard
     }
+    
     result = telegram_api("sendMessage", payload)
     if result is None:
         errors["telegram"] += 1
         errors["last_errors"].append(f"Telegram: {time.strftime('%H:%M')} - не удалось отправить кнопку")
+        print(f"   ❌ Ошибка отправки!")
+    else:
+        message_id = result.get('result', {}).get('message_id', 'unknown')
+        print(f"   ✅ Отправлено! message_id: {message_id}")
+        stats["orders_sent"] += 1
     return result
 
 
@@ -578,29 +594,45 @@ def parse_freelancehunt():
     config = ensure_config_exists()
     enabled_keywords = config["freelancehunt"]["keywords"]
     min_budget = config["freelancehunt"]["min_budget"]
+    
+    print(f"🔍 Начинаю парсинг Freelancehunt...")
 
     for category_name, category_url in FH_CATEGORIES.items():
         try:
+            print(f"   📂 Категория: {category_name}")
             feed = feedparser.parse(category_url)
+            
+            if not feed.entries:
+                print(f"   ⚠️ RSS пустой! Проверь URL: {category_url}")
+                continue
+                
+            print(f"   📊 Найдено записей: {len(feed.entries)}")
             
             for entry in feed.entries:
                 title = getattr(entry, "title", "")
                 link = getattr(entry, "link", "")
                 summary = getattr(entry, "summary", "")
                 project_id = link or title
+                
+                print(f"      📌 {title[:40]}...")
 
                 if project_id in fh_sent_projects:
+                    print(f"      ⏭️ Уже отправлен")
                     continue
 
                 text_for_filter = f"{title} {summary}"
                 budget, currency = extract_budget_and_currency(text_for_filter)
 
                 if min_budget and budget is not None and budget < min_budget:
+                    print(f"      ⏭️ Бюджет {budget} < {min_budget}")
                     continue
 
                 if enabled_keywords and not matches_keywords(text_for_filter, enabled_keywords):
+                    print(f"      ⏭️ Нет ключевых слов")
                     continue
 
+                print(f"      ✅ ОТПРАВЛЯЮ!")
+                
                 category = detect_fh_category(text_for_filter)
                 fh_sent_projects.add(project_id)
                 
@@ -616,7 +648,6 @@ def parse_freelancehunt():
                 ai_response = generate_ai_response(title, summary, category)
                 ai_responses_cache[project_id] = ai_response
                 stats["ai_generated"] += 1
-                print(f"DEBUG: AI-ответ сгенерирован для: {title[:30]}...")
 
                 message_text = format_freelancehunt_message(
                     title, summary, category, budget, currency
@@ -628,11 +659,16 @@ def parse_freelancehunt():
                     project_id
                 )
                 if result:
-                    stats["orders_sent"] += 1
+                    print(f"      ✅ Отправлено в Telegram!")
+                else:
+                    print(f"      ❌ Не отправлено в Telegram")
+                    
         except Exception as e:
             errors["freelancehunt"] += 1
             errors["last_errors"].append(f"Freelancehunt: {time.strftime('%H:%M')} - {str(e)[:30]}")
-            print(f"DEBUG: parse_freelancehunt error for {category_name}: {e}")
+            print(f"   ❌ Ошибка {category_name}: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 def parse_kabanchik():
@@ -706,7 +742,9 @@ def parse_kabanchik():
                     full_link
                 )
                 if result:
-                    stats["orders_sent"] += 1
+                    print(f"      ✅ Отправлено в Telegram!")
+                else:
+                    print(f"      ❌ Не отправлено в Telegram")
     except Exception as e:
         errors["kabanchik"] += 1
         errors["last_errors"].append(f"Kabanchik: {time.strftime('%H:%M')} - {str(e)[:30]}")
