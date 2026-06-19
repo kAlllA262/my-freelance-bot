@@ -40,10 +40,11 @@ FH_CATEGORY_NAMES = {
 
 FH_INTERVAL = 60
 
+# ✅ ОБНОВЛЁННЫЕ ССЫЛКИ KABANCHIK
 KABANCHIK_URLS = [
-    "https://kabanchik.ua/projects/category/ai-poslugi",
-    "https://kabanchik.ua/projects/category/foto-i-video-posluhy",
-    "https://kabanchik.ua/projects/category/roboty-v-interneti",
+    "https://kabanchik.ua/ua/category/ai-poslugi",           # AI послуги
+    "https://kabanchik.ua/ua/category/dyzayn",               # Дизайн
+    "https://kabanchik.ua/ua/category/foto-i-video-posluhy", # Фото- і відео-послуги
 ]
 KABANCHIK_INTERVAL = 30
 
@@ -235,8 +236,8 @@ def get_default_config():
         "kabanchik": {
             "categories": {
                 "AI услуги": True,
-                "Фото и видео услуги": True,
-                "Работы в интернете": True
+                "Дизайн": True,
+                "Фото и видео услуги": True
             }
         }
     }
@@ -829,7 +830,18 @@ def parse_kabanchik():
             soup = BeautifulSoup(response.text, "html.parser")
             
             count_in_category = 0
+            
+            # Определяем категорию по URL
+            if "ai-poslugi" in url:
+                category = "AI услуги"
+            elif "dyzayn" in url:
+                category = "Дизайн"
+            elif "foto-i-video-posluhy" in url:
+                category = "Фото и видео услуги"
+            else:
+                category = "Без категории"
 
+            # Ищем ссылки на заказы
             for a in soup.find_all("a", href=True):
                 href = a["href"]
                 title = a.get_text(" ", strip=True)
@@ -837,7 +849,8 @@ def parse_kabanchik():
                 if not title or len(title) < 5:
                     continue
 
-                if "project" not in href and "task" not in href:
+                # Проверяем, что ссылка ведёт на заказ
+                if "task" not in href and "project" not in href:
                     continue
 
                 full_link = href if href.startswith("http") else f"https://kabanchik.ua{href}"
@@ -848,15 +861,6 @@ def parse_kabanchik():
                 text_for_filter = title.lower()
                 if config["freelancehunt"]["keywords"] and not matches_keywords(text_for_filter, config["freelancehunt"]["keywords"]):
                     continue
-
-                if "ai-poslugi" in url:
-                    category = "AI услуги"
-                elif "foto-i-video-posluhy" in url:
-                    category = "Фото и видео услуги"
-                elif "roboty-v-interneti" in url:
-                    category = "Работы в интернете"
-                else:
-                    category = "Без категории"
 
                 kabanchik_sent_tasks.add(full_link)
                 stats["orders_found"] += 1
@@ -884,7 +888,7 @@ def parse_kabanchik():
                     full_link
                 )
             
-            # ✅ Исправленная строка — проверяем, определена ли переменная category
+            # Обновляем статистику
             if 'category' in locals():
                 update_check_stats("kabanchik", category, count_in_category)
             else:
