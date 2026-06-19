@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import hashlib
 from bs4 import BeautifulSoup
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -58,6 +59,11 @@ errors = {
     "telegram": 0,
     "last_errors": []
 }
+
+# Функция для генерации короткого ID
+def get_short_id(project_id):
+    """Генерирует короткий ID для callback_data"""
+    return hashlib.md5(project_id.encode()).hexdigest()[:8]
 
 
 class HealthCheckServer(BaseHTTPRequestHandler):
@@ -203,13 +209,17 @@ def send_telegram_message_with_ai_button(text, button_url, project_id):
     print(f"📤 Отправка с кнопками для: {project_id[:30]}...")
     print(f"   CHAT_ID: {CHAT_ID}")
 
+    # Берём AI-ответ из кэша
+    ai_text = ai_responses_cache.get(project_id, "AI-ответ ещё не сгенерирован")
+    ai_text_short = ai_text[:250]  # Максимум 250 символов
+
     keyboard = {
         "inline_keyboard": [
             [
                 {"text": "🔗 Открыть", "url": button_url.strip()},
                 {
                     "text": "🤖 AI ответ",
-                    "callback_data": f"copy_{project_id}"
+                    "copy_text": {"text": ai_text_short}  # ← Копирует сразу!
                 }
             ]
         ]
@@ -798,40 +808,7 @@ def handle_updates():
                     message_id = cb["message"]["message_id"]
                     config = ensure_config_exists()
 
-                    if data.startswith("copy_"):
-                        project_id = data.replace("copy_", "")
-                        
-                        if project_id in ai_responses_cache:
-                            ai_text = ai_responses_cache[project_id]
-                            ai_text_short = ai_text[:250]
-                            
-                            send_telegram_message(
-                                f"🤖 <b>AI-ответ для заказа:</b>\n\n{ai_text}",
-                                {
-                                    "inline_keyboard": [
-                                        [
-                                            {
-                                                "text": "📋 Скопировать в буфер",
-                                                "copy_text": {"text": ai_text_short}
-                                            }
-                                        ]
-                                    ]
-                                }
-                            )
-                            
-                            telegram_api("answerCallbackQuery", {
-                                "callback_query_id": cid,
-                                "text": "✅ Ответ готов! Нажми кнопку для копирования",
-                                "show_alert": False
-                            })
-                        else:
-                            telegram_api("answerCallbackQuery", {
-                                "callback_query_id": cid,
-                                "text": "❌ AI-ответ не найден",
-                                "show_alert": True
-                            })
-
-                    elif data == "open_settings":
+                    if data == "open_settings":
                         telegram_api("deleteMessage", {
                             "chat_id": chat_id,
                             "message_id": message_id
