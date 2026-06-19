@@ -4,6 +4,7 @@ import feedparser
 import json
 import os
 import re
+import sys
 from bs4 import BeautifulSoup
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -39,7 +40,7 @@ CONFIG_FILE = "config.json"
 fh_sent_projects = set()
 kabanchik_sent_tasks = set()
 pending_orders = {}
-ai_responses_cache = {}  # Храним сгенерированные AI-ответы
+ai_responses_cache = {}
 
 stats = {
     "orders_found": 0,
@@ -71,7 +72,10 @@ class HealthCheckServer(BaseHTTPRequestHandler):
 
 
 def run_web_server():
-    HTTPServer(("0.0.0.0", PORT), HealthCheckServer).serve_forever()
+    try:
+        HTTPServer(("0.0.0.0", PORT), HealthCheckServer).serve_forever()
+    except Exception as e:
+        print(f"DEBUG: Web server error: {e}")
 
 
 def telegram_api(method, payload):
@@ -195,7 +199,7 @@ def send_telegram_message_with_ai_button(text, button_url, project_id):
                 {"text": "🔗 Открыть", "url": button_url.strip()},
                 {
                     "text": "🤖 AI ответ",
-                    "callback_data": f"copy_{project_id}"  # Изменено на copy_
+                    "callback_data": f"copy_{project_id}"
                 }
             ]
         ]
@@ -609,7 +613,6 @@ def parse_freelancehunt():
                     "category": category
                 }
 
-                # 🧠 Генерируем AI-ответ СРАЗУ при находке заказа
                 ai_response = generate_ai_response(title, summary, category)
                 ai_responses_cache[project_id] = ai_response
                 stats["ai_generated"] += 1
@@ -688,7 +691,6 @@ def parse_kabanchik():
                     "category": category
                 }
 
-                # 🧠 Генерируем AI-ответ СРАЗУ при находке заказа
                 ai_response = generate_ai_response(title, "Описание на сайте", category)
                 ai_responses_cache[full_link] = ai_response
                 stats["ai_generated"] += 1
@@ -758,7 +760,6 @@ def handle_updates():
                     message_id = cb["message"]["message_id"]
                     config = ensure_config_exists()
 
-                    # 🔥 КНОПКА "AI ответ" — просто копирует готовый ответ
                     if data.startswith("copy_"):
                         project_id = data.replace("copy_", "")
                         
@@ -766,7 +767,6 @@ def handle_updates():
                             ai_text = ai_responses_cache[project_id]
                             ai_text_short = ai_text[:250]
                             
-                            # Отправляем сообщение с кнопкой для копирования
                             send_telegram_message(
                                 f"🤖 <b>AI-ответ для заказа:</b>\n\n{ai_text}",
                                 {
@@ -980,43 +980,70 @@ def handle_updates():
 
 def monitor_freelancehunt():
     while True:
-        parse_freelancehunt()
+        try:
+            parse_freelancehunt()
+        except Exception as e:
+            print(f"DEBUG: monitor_freelancehunt error: {e}")
         time.sleep(FH_INTERVAL)
 
 
 def monitor_kabanchik():
     while True:
-        parse_kabanchik()
+        try:
+            parse_kabanchik()
+        except Exception as e:
+            print(f"DEBUG: monitor_kabanchik error: {e}")
         time.sleep(KABANCHIK_INTERVAL)
 
 
 def main():
     try:
-        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
+        print("🚀 Бот запускается...")
+        
+        if not BOT_TOKEN or not CHAT_ID:
+            print("❌ BOT_TOKEN или CHAT_ID не заданы!")
+            sys.exit(1)
+        
+        try:
+            requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook", timeout=5)
+            print("✅ Webhook удален")
+        except Exception as e:
+            print(f"⚠️ Ошибка удаления webhook: {e}")
+
+        if GEMINI_API_KEY:
+            print("✅ GEMINI_API_KEY найден! AI-ответы будут генерироваться при находке заказа.")
+        else:
+            print("⚠️ GEMINI_API_KEY не задан! AI-ответы будут ШАБЛОННЫМИ.")
+
+        ensure_config_exists()
+        setup_bot_menu()
+
+        threads = [
+            Thread(target=run_web_server, daemon=True),
+            Thread(target=monitor_freelancehunt, daemon=True),
+            Thread(target=monitor_kabanchik, daemon=True),
+            Thread(target=handle_updates, daemon=True)
+        ]
+        
+        for t in threads:
+            t.start()
+            print(f"✅ Поток {t.name} запущен")
+
+        print("✅ Все потоки запущены. Ожидание...")
+        
+        while True:
+            time.sleep(60)
+            
+    except KeyboardInterrupt:
+        print("🛑 Бот остановлен")
+        sys.exit(0)
     except Exception as e:
-        print(f"DEBUG: Ошибка удаления webhook: {e}")
-    
-    print("Бот запускается...")
-    if not BOT_TOKEN or not CHAT_ID:
-        print("DEBUG: BOT_TOKEN или CHAT_ID не заданы")
-        return
-
-    if GEMINI_API_KEY:
-        print("✅ GEMINI_API_KEY найден! AI-ответы будут генерироваться при находке заказа.")
-    else:
-        print("⚠️ GEMINI_API_KEY не задан! AI-ответы будут ШАБЛОННЫМИ.")
-
-    ensure_config_exists()
-    setup_bot_menu()
-
-    Thread(target=run_web_server, daemon=True).start()
-    Thread(target=monitor_freelancehunt, daemon=True).start()
-    Thread(target=monitor_kabanchik, daemon=True).start()
-    Thread(target=handle_updates, daemon=True).start()
-
-    print("Все потоки запущены. Ожидание...")
-    while True:
-        time.sleep(60)
+        print(f"❌ КРИТИЧЕСКАЯ ОШИБКА: {e}")
+        try:
+            send_telegram_message(f"❌ Бот упал с ошибкой:\n{str(e)[:300]}")
+        except:
+            pass
+        sys.exit(1)
 
 
 if __name__ == "__main__":
