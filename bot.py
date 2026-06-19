@@ -16,6 +16,7 @@ PORT = int(os.environ.get("PORT", 10000))
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
+# --- FREELANCEHUNT ---
 FH_CATEGORIES = {
     "ai_video": "https://freelancehunt.com/projects.rss?skills%5B%5D=192",
     "animation": "https://freelancehunt.com/projects.rss?skills%5B%5D=91",
@@ -29,6 +30,7 @@ FH_CATEGORIES = {
 
 FH_INTERVAL = 60
 
+# --- KABANCHIK ---
 KABANCHIK_URLS = [
     "https://kabanchik.ua/projects/category/ai-poslugi",
     "https://kabanchik.ua/projects/category/foto-i-video-posluhy",
@@ -36,10 +38,40 @@ KABANCHIK_URLS = [
 ]
 KABANCHIK_INTERVAL = 30
 
+# --- WEBLANCER ---
+WEBLANCER_URL = "https://www.weblancer.net/projects/"
+WEBLANCER_INTERVAL = 60
+
+WEBLANCER_KEYWORDS = [
+    "монтаж видеороликов", "монтаж видео", "видеомонтаж", "нарезка видео",
+    "склейка видео", "редактирование видео", "видео на заказ", "обработка видео",
+    "создание видео", "сделать видео", "запись видео", "видеосъемка",
+    "видео под ключ", "создание анимаций", "анимация", "motion",
+    "motion design", "2d анимация", "3d анимация", "после эффектов",
+    "after effects", "анимированный ролик", "инфографика", "визуализация",
+    "создание рекламных роликов", "рекламный ролик", "реклама видео",
+    "видеореклама", "промо", "промо видео", "проморолик",
+    "реклама для соцсетей", "рекламное видео", "динамичный ролик",
+    "reels", "shorts", "instagram reels", "youtube shorts",
+    "тикток", "tiktok", "вертикальное видео", "short video",
+    "видео для инстаграм", "видео для тикток", "adobe premiere pro",
+    "premiere pro", "capcut", "davinci resolve", "da vinci",
+    "resolve", "color grading", "цветокоррекция", "цветокор",
+    "post production", "постпродакшн", "визуальные эффекты", "vfx",
+    "special effects", "закадровый голос", "озвучка", "звук",
+    "музыка для видео", "добавление музыки", "наложение музыки",
+    "саунд дизайн", "звукорежиссура", "clean audio", "очистка звука",
+    "обработка звука", "контент для youtube", "youtube видео",
+    "ютуб", "youtube монтаж", "vlog", "влог", "короткий ролик",
+    "видео для бизнеса", "корпоративное видео", "интро видео",
+    "аутро видео", "video editing", "video production", "video creator",
+]
+
 CONFIG_FILE = "config.json"
 
 fh_sent_projects = set()
 kabanchik_sent_tasks = set()
+weblancer_sent_projects = set()
 pending_orders = {}
 ai_responses_cache = {}
 
@@ -49,21 +81,22 @@ stats = {
     "ai_generated": 0,
     "start_time": time.time(),
     "freelancehunt": 0,
-    "kabanchik": 0
+    "kabanchik": 0,
+    "weblancer": 0
 }
 
 errors = {
     "freelancehunt": 0,
     "kabanchik": 0,
+    "weblancer": 0,
     "gemini": 0,
     "telegram": 0,
     "last_errors": []
 }
 
-# Функция для логирования ошибок с Киевским временем
 def log_error(error_type, message):
     """Записывает ошибку с Киевским временем (UTC+3)"""
-    kiev_time = time.localtime(time.time() + 10800)  # UTC+3
+    kiev_time = time.localtime(time.time() + 10800)
     time_str = time.strftime('%H:%M', kiev_time)
     
     if error_type in errors:
@@ -72,14 +105,10 @@ def log_error(error_type, message):
         errors[error_type] = 1
     
     errors["last_errors"].append(f"{error_type.capitalize()}: {time_str} - {message}")
-    
-    # Оставляем только последние 10 ошибок
     if len(errors["last_errors"]) > 10:
         errors["last_errors"] = errors["last_errors"][-10:]
 
-# Функция для генерации короткого ID
 def get_short_id(project_id):
-    """Генерирует короткий ID для callback_data"""
     return hashlib.md5(project_id.encode()).hexdigest()[:8]
 
 
@@ -166,7 +195,7 @@ def load_config():
                 return json.load(f)
     except Exception as e:
         print(f"DEBUG: load_config error: {e}")
-        return None
+    return None
 
 
 def save_config(config):
@@ -207,11 +236,9 @@ def send_telegram_message(text, reply_markup=None):
     if reply_markup:
         payload["reply_markup"] = reply_markup
 
-    print(f"📤 Отправка сообщения... (длина: {len(text)})")
     result = telegram_api("sendMessage", payload)
     if result is None:
         log_error("telegram", "не удалось отправить сообщение")
-        print("❌ Не удалось отправить сообщение!")
     else:
         print(f"✅ Сообщение отправлено! ID: {result.get('result', {}).get('message_id', 'unknown')}")
     return result
@@ -222,21 +249,14 @@ def send_telegram_message_with_ai_button(text, button_url, project_id):
         print("❌ BOT_TOKEN или CHAT_ID не заданы!")
         return None
 
-    print(f"📤 Отправка с кнопками для: {project_id[:30]}...")
-    print(f"   CHAT_ID: {CHAT_ID}")
-
-    # Берём AI-ответ из кэша
     ai_text = ai_responses_cache.get(project_id, "AI-ответ ещё не сгенерирован")
-    ai_text_short = ai_text[:250]  # Максимум 250 символов
+    ai_text_short = ai_text[:250]
 
     keyboard = {
         "inline_keyboard": [
             [
                 {"text": "🔗 Открыть", "url": button_url.strip()},
-                {
-                    "text": "🤖 AI ответ",
-                    "copy_text": {"text": ai_text_short}  # ← Копирует сразу!
-                }
+                {"text": "🤖 AI ответ", "copy_text": {"text": ai_text_short}}
             ]
         ]
     }
@@ -492,6 +512,30 @@ def format_kabanchik_message(title, category, description="Описание на
     )
 
 
+def format_weblancer_message(title, description, budget_text, link):
+    """Форматирует сообщение для Weblancer"""
+    title, title_translated = maybe_translate(title)
+    description, description_translated = maybe_translate(description)
+
+    title_line = f"📌 <b>{clean_html_text(title)}</b>"
+    if title_translated:
+        title_line += " <i>(переведен)</i>"
+
+    description_quoted = format_quote(clean_html_text(description[:900]))
+    if description_translated:
+        description_quoted += "\n\n<i>(переведен)</i>"
+
+    description_line = f"┌─────────────────────\n📝 <b>Описание:</b>\n{description_quoted}"
+
+    return (
+        f"🟣 <b>Weblancer</b>\n\n"
+        f"{title_line}\n\n"
+        f"🏷 <b>Категория:</b> <code>Видеомонтаж / AI-видео</code>\n"
+        f"💰 <b>Бюджет:</b> {clean_html_text(budget_text)}\n\n"
+        f"{description_line}"
+    )
+
+
 def get_uptime():
     diff = time.time() - stats["start_time"]
     hours = int(diff // 3600)
@@ -500,7 +544,7 @@ def get_uptime():
 
 
 def get_status_message():
-    total_errors = sum([errors["freelancehunt"], errors["kabanchik"], errors["gemini"], errors["telegram"]])
+    total_errors = sum([errors["freelancehunt"], errors["kabanchik"], errors["weblancer"], errors["gemini"], errors["telegram"]])
     
     status = "✅ БОТ РАБОТАЕТ" if total_errors < 10 else "⚠️ БОТ РАБОТАЕТ С ОШИБКАМИ"
     
@@ -509,6 +553,8 @@ def get_status_message():
         error_lines.append(f"• Freelancehunt: {errors['freelancehunt']} ошибок")
     if errors["kabanchik"] > 0:
         error_lines.append(f"• Kabanchik: {errors['kabanchik']} ошибок")
+    if errors["weblancer"] > 0:
+        error_lines.append(f"• Weblancer: {errors['weblancer']} ошибок")
     if errors["gemini"] > 0:
         error_lines.append(f"• Gemini: {errors['gemini']} ошибок")
     if errors["telegram"] > 0:
@@ -529,6 +575,7 @@ def get_status_message():
         f"• Всего найдено: {stats['orders_found']}\n"
         f"• Freelancehunt: {stats['freelancehunt']}\n"
         f"• Kabanchik: {stats['kabanchik']}\n"
+        f"• Weblancer: {stats['weblancer']}\n"
         f"• Отправлено в Telegram: {stats['orders_sent']}\n"
         f"• AI-ответов сгенерировано: {stats['ai_generated']}\n\n"
         f"⚠️ <b>Ошибки:</b>\n" + "\n".join(error_lines) + f"\n"
@@ -540,7 +587,6 @@ def get_status_message():
 
 
 def generate_ai_response(project_title, project_description, project_category):
-    """Генерирует AI-ответ (вызывается при находке заказа)"""
     if not GEMINI_API_KEY:
         return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
 
@@ -557,13 +603,6 @@ def generate_ai_response(project_title, project_description, project_category):
 
 Заголовок заказа: {project_title}
 Описание заказа: {project_description[:500]}
-
-Твой ответ должен:
-1. Быть уникальным для ЭТОГО КОНКРЕТНОГО заказа
-2. Показать понимание задачи (упомяни детали из описания)
-3. Предложить конкретные идеи решения
-4. Быть уверенным и профессиональным
-5. Заканчиваться призывом к действию
 
 Ответ: 3-5 предложений на русском языке, кратко и по делу.
 """
@@ -585,7 +624,6 @@ def generate_ai_response(project_title, project_description, project_category):
         if response.status_code == 429:
             log_error("gemini", "лимит превышен (429)")
         
-        print(f"DEBUG: Gemini error: {response.status_code}")
         return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
 
 Я специализируюсь в области {project_category} и имею успешный опыт.
@@ -594,7 +632,6 @@ def generate_ai_response(project_title, project_description, project_category):
             
     except Exception as e:
         log_error("gemini", str(e)[:30])
-        print(f"DEBUG: AI generation error: {e}")
         return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
 
 Я специализируюсь в области {project_category} и имею опыт в таких проектах.
@@ -617,45 +654,29 @@ def parse_freelancehunt():
     config = ensure_config_exists()
     enabled_keywords = config["freelancehunt"]["keywords"]
     min_budget = config["freelancehunt"]["min_budget"]
-    
-    print(f"🔍 Начинаю парсинг Freelancehunt...")
 
     for category_name, category_url in FH_CATEGORIES.items():
         try:
-            print(f"   📂 Категория: {category_name}")
             feed = feedparser.parse(category_url)
-            
-            if not feed.entries:
-                print(f"   ⚠️ RSS пустой! Проверь URL: {category_url}")
-                continue
-                
-            print(f"   📊 Найдено записей: {len(feed.entries)}")
             
             for entry in feed.entries:
                 title = getattr(entry, "title", "")
                 link = getattr(entry, "link", "")
                 summary = getattr(entry, "summary", "")
                 project_id = link or title
-                
-                print(f"      📌 {title[:40]}...")
 
                 if project_id in fh_sent_projects:
-                    print(f"      ⏭️ Уже отправлен")
                     continue
 
                 text_for_filter = f"{title} {summary}"
                 budget, currency = extract_budget_and_currency(text_for_filter)
 
                 if min_budget and budget is not None and budget < min_budget:
-                    print(f"      ⏭️ Бюджет {budget} < {min_budget}")
                     continue
 
                 if enabled_keywords and not matches_keywords(text_for_filter, enabled_keywords):
-                    print(f"      ⏭️ Нет ключевых слов")
                     continue
 
-                print(f"      ✅ ОТПРАВЛЯЮ!")
-                
                 category = detect_fh_category(text_for_filter)
                 fh_sent_projects.add(project_id)
                 
@@ -676,21 +697,14 @@ def parse_freelancehunt():
                     title, summary, category, budget, currency
                 )
 
-                result = send_telegram_message_with_ai_button(
+                send_telegram_message_with_ai_button(
                     message_text,
                     link,
                     project_id
                 )
-                if result:
-                    print(f"      ✅ Отправлено в Telegram!")
-                else:
-                    print(f"      ❌ Не отправлено в Telegram")
-                    
         except Exception as e:
             log_error("freelancehunt", str(e)[:30])
-            print(f"   ❌ Ошибка {category_name}: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"DEBUG: parse_freelancehunt error for {category_name}: {e}")
 
 
 def parse_kabanchik():
@@ -702,7 +716,6 @@ def parse_kabanchik():
                 response = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
             except requests.exceptions.Timeout:
                 log_error("kabanchik", "таймаут")
-                print(f"DEBUG: Kabanchik timeout for {url}")
                 continue
                 
             if response.status_code != 200:
@@ -751,24 +764,111 @@ def parse_kabanchik():
                 ai_response = generate_ai_response(title, "Описание на сайте", category)
                 ai_responses_cache[full_link] = ai_response
                 stats["ai_generated"] += 1
-                print(f"DEBUG: AI-ответ сгенерирован для Kabanchik: {title[:30]}...")
 
                 message_text = format_kabanchik_message(
                     title, category, "Описание на сайте", None, ""
                 )
 
-                result = send_telegram_message_with_ai_button(
+                send_telegram_message_with_ai_button(
                     message_text,
                     full_link,
                     full_link
                 )
-                if result:
-                    print(f"      ✅ Отправлено в Telegram!")
-                else:
-                    print(f"      ❌ Не отправлено в Telegram")
     except Exception as e:
         log_error("kabanchik", str(e)[:30])
-        print(f"DEBUG: parse_kabanchik error: {e}")
+
+
+def parse_weblancer():
+    """Парсит заказы с Weblancer"""
+    config = ensure_config_exists()
+    enabled_keywords = config["freelancehunt"]["keywords"]
+    min_budget = config["freelancehunt"]["min_budget"]
+
+    print(f"🔍 Начинаю парсинг Weblancer...")
+    
+    try:
+        # Используем поиск с ключевыми словами из WEBLANCER_KEYWORDS
+        for keyword in WEBLANCER_KEYWORDS[:3]:  # Ограничим 3 ключевыми словами для скорости
+            try:
+                search_url = f"{WEBLANCER_URL}?q={keyword.replace(' ', '+')}"
+                response = requests.get(search_url, timeout=30, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                })
+                
+                if response.status_code != 200:
+                    continue
+                
+                soup = BeautifulSoup(response.text, "html.parser")
+                
+                # Ищем заказы — адаптируй под актуальную структуру Weblancer
+                for project in soup.find_all("div", class_="container-fluid"):
+                    try:
+                        title_elem = project.find("div", class_="title")
+                        if not title_elem:
+                            continue
+                            
+                        title = title_elem.get_text(strip=True)
+                        
+                        link_elem = title_elem.find("a")
+                        if link_elem and link_elem.get("href"):
+                            link = "https://www.weblancer.net" + link_elem.get("href")
+                        else:
+                            continue
+                        
+                        desc_elem = project.find("div", class_="description")
+                        description = desc_elem.get_text(strip=True) if desc_elem else ""
+                        
+                        budget_elem = project.find("div", class_="amount")
+                        budget_text = budget_elem.get_text(strip=True) if budget_elem else "Не указан"
+                        
+                        project_id = link or title
+                        
+                        if project_id in weblancer_sent_projects:
+                            continue
+                        
+                        text_for_filter = f"{title} {description}"
+                        budget, currency = extract_budget_and_currency(budget_text)
+                        
+                        if min_budget and budget is not None and budget < min_budget:
+                            continue
+                            
+                        if enabled_keywords and not matches_keywords(text_for_filter, enabled_keywords):
+                            continue
+                        
+                        weblancer_sent_projects.add(project_id)
+                        stats["orders_found"] += 1
+                        stats["weblancer"] += 1
+                        
+                        pending_orders[project_id] = {
+                            "title": title,
+                            "description": description,
+                            "category": "Видеомонтаж / AI-видео"
+                        }
+                        
+                        ai_response = generate_ai_response(title, description, "Видеомонтаж / AI-видео")
+                        ai_responses_cache[project_id] = ai_response
+                        stats["ai_generated"] += 1
+                        
+                        message_text = format_weblancer_message(
+                            title, description, budget_text, link
+                        )
+                        
+                        send_telegram_message_with_ai_button(
+                            message_text,
+                            link,
+                            project_id
+                        )
+                        
+                    except Exception as e:
+                        continue
+                        
+            except Exception as e:
+                print(f"   ⚠️ Ошибка поиска по ключевому слову {keyword}: {e}")
+                continue
+                
+    except Exception as e:
+        log_error("weblancer", str(e)[:30])
+        print(f"   ❌ Ошибка Weblancer: {e}")
 
 
 def handle_updates():
@@ -819,88 +919,30 @@ def handle_updates():
                     config = ensure_config_exists()
 
                     if data == "open_settings":
-                        telegram_api("deleteMessage", {
-                            "chat_id": chat_id,
-                            "message_id": message_id
-                        })
                         send_telegram_message("⚙️ <b>Настройки</b>", create_settings_keyboard())
-                        telegram_api("answerCallbackQuery", {
-                            "callback_query_id": cid,
-                            "text": "⚙️ Настройки",
-                            "show_alert": False
-                        })
 
                     elif data == "open_budget":
-                        telegram_api("deleteMessage", {
-                            "chat_id": chat_id,
-                            "message_id": message_id
-                        })
                         send_telegram_message("💰 <b>Выберите минимальный бюджет:</b>", create_budget_keyboard())
-                        telegram_api("answerCallbackQuery", {
-                            "callback_query_id": cid,
-                            "text": "💰 Бюджет",
-                            "show_alert": False
-                        })
 
                     elif data == "open_keywords":
-                        telegram_api("deleteMessage", {
-                            "chat_id": chat_id,
-                            "message_id": message_id
-                        })
                         send_telegram_message("🔍 <b>Выберите ключевое слово:</b>", create_keywords_keyboard())
-                        telegram_api("answerCallbackQuery", {
-                            "callback_query_id": cid,
-                            "text": "🔍 Ключевые слова",
-                            "show_alert": False
-                        })
 
                     elif data == "back_to_settings":
-                        telegram_api("deleteMessage", {
-                            "chat_id": chat_id,
-                            "message_id": message_id
-                        })
                         send_telegram_message("⚙️ <b>Настройки</b>", create_settings_keyboard())
-                        telegram_api("answerCallbackQuery", {
-                            "callback_query_id": cid,
-                            "text": "⬅️ Назад",
-                            "show_alert": False
-                        })
 
                     elif data == "show_fh_categories":
-                        telegram_api("deleteMessage", {
-                            "chat_id": chat_id,
-                            "message_id": message_id
-                        })
                         text = "📁 <b>Freelancehunt категории:</b>\n\n"
                         for cat, enabled in config["freelancehunt"]["categories"].items():
                             text += f"{'✅' if enabled else '❌'} {cat}\n"
                         send_telegram_message(text, create_settings_keyboard())
-                        telegram_api("answerCallbackQuery", {
-                            "callback_query_id": cid,
-                            "text": "📁 Freelancehunt",
-                            "show_alert": False
-                        })
 
                     elif data == "show_kb_categories":
-                        telegram_api("deleteMessage", {
-                            "chat_id": chat_id,
-                            "message_id": message_id
-                        })
                         text = "📁 <b>Kabanchik категории:</b>\n\n"
                         for cat, enabled in config["kabanchik"]["categories"].items():
                             text += f"{'✅' if enabled else '❌'} {cat}\n"
                         send_telegram_message(text, create_settings_keyboard())
-                        telegram_api("answerCallbackQuery", {
-                            "callback_query_id": cid,
-                            "text": "📁 Kabanchik",
-                            "show_alert": False
-                        })
 
                     elif data.startswith("budget_"):
-                        telegram_api("deleteMessage", {
-                            "chat_id": chat_id,
-                            "message_id": message_id
-                        })
                         budget = int(data.replace("budget_", ""))
                         config["freelancehunt"]["min_budget"] = budget
                         save_config(config)
@@ -908,17 +950,8 @@ def handle_updates():
                             f"✅ Минимальный бюджет установлен: ${budget}",
                             create_settings_keyboard()
                         )
-                        telegram_api("answerCallbackQuery", {
-                            "callback_query_id": cid,
-                            "text": f"✅ Бюджет ${budget}",
-                            "show_alert": False
-                        })
 
                     elif data.startswith("kw_"):
-                        telegram_api("deleteMessage", {
-                            "chat_id": chat_id,
-                            "message_id": message_id
-                        })
                         keyword_map = {
                             "kw_montage": "монтаж",
                             "kw_ai_video": "ai видео",
@@ -941,33 +974,14 @@ def handle_updates():
                             config["freelancehunt"]["keywords"] = keywords
                             save_config(config)
                             send_telegram_message(msg, create_settings_keyboard())
-                        telegram_api("answerCallbackQuery", {
-                            "callback_query_id": cid,
-                            "text": "✅ Готово",
-                            "show_alert": False
-                        })
 
                     elif data == "reset_config":
-                        telegram_api("deleteMessage", {
-                            "chat_id": chat_id,
-                            "message_id": message_id
-                        })
                         config = get_default_config()
                         save_config(config)
                         send_telegram_message("🔄 Настройки сброшены", create_settings_keyboard())
-                        telegram_api("answerCallbackQuery", {
-                            "callback_query_id": cid,
-                            "text": "🔄 Сброшено",
-                            "show_alert": False
-                        })
 
                     elif data == "bot_status":
                         send_telegram_message(get_status_message())
-                        telegram_api("answerCallbackQuery", {
-                            "callback_query_id": cid,
-                            "text": "📊 Статус бота",
-                            "show_alert": False
-                        })
 
                     elif data == "bot_help":
                         send_telegram_message(
@@ -978,11 +992,6 @@ def handle_updates():
                             "🔄 Перезапуск",
                             create_main_keyboard()
                         )
-                        telegram_api("answerCallbackQuery", {
-                            "callback_query_id": cid,
-                            "text": "❓ Help",
-                            "show_alert": False
-                        })
 
                     elif data == "bot_restart":
                         send_telegram_message("🔄 Перезапуск...", create_main_keyboard())
@@ -992,10 +1001,6 @@ def handle_updates():
                         telegram_api("deleteMessage", {
                             "chat_id": chat_id,
                             "message_id": message_id
-                        })
-                        telegram_api("answerCallbackQuery", {
-                            "callback_query_id": cid,
-                            "text": "Меню закрыто"
                         })
 
         except Exception as e:
@@ -1021,6 +1026,15 @@ def monitor_kabanchik():
         time.sleep(KABANCHIK_INTERVAL)
 
 
+def monitor_weblancer():
+    while True:
+        try:
+            parse_weblancer()
+        except Exception as e:
+            print(f"DEBUG: monitor_weblancer error: {e}")
+        time.sleep(WEBLANCER_INTERVAL)
+
+
 def main():
     try:
         print("🚀 Бот запускается...")
@@ -1036,9 +1050,9 @@ def main():
             print(f"⚠️ Ошибка удаления webhook: {e}")
 
         if GEMINI_API_KEY:
-            print("✅ GEMINI_API_KEY найден! AI-ответы будут генерироваться при находке заказа.")
+            print("✅ GEMINI_API_KEY найден!")
         else:
-            print("⚠️ GEMINI_API_KEY не задан! AI-ответы будут ШАБЛОННЫМИ.")
+            print("⚠️ GEMINI_API_KEY не задан!")
 
         ensure_config_exists()
         setup_bot_menu()
@@ -1047,6 +1061,7 @@ def main():
             Thread(target=run_web_server, daemon=True),
             Thread(target=monitor_freelancehunt, daemon=True),
             Thread(target=monitor_kabanchik, daemon=True),
+            Thread(target=monitor_weblancer, daemon=True),
             Thread(target=handle_updates, daemon=True)
         ]
         
