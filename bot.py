@@ -40,11 +40,8 @@ FH_CATEGORY_NAMES = {
 
 FH_INTERVAL = 60
 
-# ✅ ОБНОВЛЁННЫЕ ССЫЛКИ KABANCHIK
 KABANCHIK_URLS = [
-    "https://kabanchik.ua/ua/category/ai-poslugi",           # AI послуги
-    "https://kabanchik.ua/ua/category/dyzayn",               # Дизайн
-    "https://kabanchik.ua/ua/category/foto-i-video-posluhy", # Фото- і відео-послуги
+    "https://kabanchik.ua/ua/category/ai-poslugi",
 ]
 KABANCHIK_INTERVAL = 30
 
@@ -236,7 +233,6 @@ def get_default_config():
         "kabanchik": {
             "categories": {
                 "AI услуги": True,
-                "Дизайн": True,
                 "Фото и видео услуги": True
             }
         }
@@ -909,7 +905,8 @@ def parse_weblancer():
     total_in_keyword = 0
     
     try:
-        for keyword in WEBLANCER_KEYWORDS[:3]:
+        # Используем больше ключевых слов
+        for keyword in WEBLANCER_KEYWORDS[:10]:  # Увеличил с 3 до 10
             try:
                 search_url = f"{WEBLANCER_URL}?q={keyword.replace(' ', '+')}"
                 print(f"   📂 Поиск: {keyword}")
@@ -924,23 +921,37 @@ def parse_weblancer():
                 soup = BeautifulSoup(response.text, "html.parser")
                 count_in_keyword = 0
                 
-                for project in soup.find_all("div", class_="container-fluid"):
+                # Обновлённые селекторы для Weblancer
+                # Ищем все блоки с заказами
+                projects = soup.find_all("div", class_="col-sm-12")
+                
+                if not projects:
+                    # Пробуем другой селектор
+                    projects = soup.find_all("div", class_="row")
+                
+                for project in projects:
                     try:
+                        # Ищем заголовок
                         title_elem = project.find("div", class_="title")
                         if not title_elem:
-                            continue
-                            
-                        title = title_elem.get_text(strip=True)
-                        
-                        link_elem = title_elem.find("a")
-                        if link_elem and link_elem.get("href"):
+                            # Пробуем найти ссылку напрямую
+                            link_elem = project.find("a", href=True)
+                            if not link_elem:
+                                continue
+                            title = link_elem.get_text(strip=True)
                             link = "https://www.weblancer.net" + link_elem.get("href")
                         else:
-                            continue
+                            title = title_elem.get_text(strip=True)
+                            link_elem = title_elem.find("a")
+                            if not link_elem:
+                                continue
+                            link = "https://www.weblancer.net" + link_elem.get("href")
                         
+                        # Ищем описание
                         desc_elem = project.find("div", class_="description")
                         description = desc_elem.get_text(strip=True) if desc_elem else ""
                         
+                        # Ищем бюджет
                         budget_elem = project.find("div", class_="amount")
                         budget_text = budget_elem.get_text(strip=True) if budget_elem else "Не указан"
                         
@@ -988,6 +999,7 @@ def parse_weblancer():
                         continue
                 
                 update_check_stats("weblancer", keyword, count_in_keyword)
+                print(f"   📊 По ключевому слову '{keyword}' найдено: {count_in_keyword} заказов")
                         
             except Exception as e:
                 print(f"   ⚠️ Ошибка поиска по ключевому слову {keyword}: {e}")
@@ -998,6 +1010,7 @@ def parse_weblancer():
         print(f"   ❌ Ошибка Weblancer: {e}")
     
     check_stats["weblancer"]["last_count"] = total_in_keyword
+    print(f"📊 Weblancer: всего найдено {total_in_keyword} заказов")
 
 
 def handle_updates():
