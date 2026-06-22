@@ -15,7 +15,7 @@ CHAT_ID = os.environ.get("CHAT_ID")
 PORT = int(os.environ.get("PORT", 10000))
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-FH_API_TOKEN = os.environ.get("FH_API_TOKEN")
+FH_API_TOKEN = os.environ.get("FH_API_TOKEN")  # Убедись, что ключ правильный!
 
 # Шаблон отклика
 template = {
@@ -25,9 +25,8 @@ template = {
     "extra_text": "Могу предоставить портфолио по запросу."
 }
 
-# Ожидание ввода для шаблона
 waiting_for_template_input = False
-template_input_type = None  # "price", "deadline", "text"
+template_input_type = None
 
 FH_CATEGORIES = {
     "ai_video": "https://freelancehunt.com/projects.rss?skills%5B%5D=192",
@@ -135,7 +134,6 @@ check_stats = {
 }
 
 def get_short_id(project_id):
-    """Генерирует короткий ID для callback_data (максимум 64 символа)"""
     return hashlib.md5(project_id.encode()).hexdigest()[:8]
 
 
@@ -310,21 +308,19 @@ def send_telegram_message(text, reply_markup=None):
 def send_bid(project_id, price, deadline, comment):
     """Отправляет отклик на заказ через API Freelancehunt"""
     if not FH_API_TOKEN:
-        return {"status": "error", "message": "API-ключ не настроен"}
-    
-    # 🔥 Строгая проверка: только Freelancehunt!
-    if "freelancehunt.com" not in project_id:
-        return {"status": "error", "message": "❌ Автоотклик работает ТОЛЬКО для заказов с Freelancehunt"}
+        return {"status": "error", "message": "❌ API-ключ не настроен! Добавь FH_API_TOKEN на Render"}
     
     try:
+        # Извлекаем ID проекта из ссылки
         import re
         match = re.search(r'/(\d+)/?', project_id)
         if not match:
-            return {"status": "error", "message": f"Не удалось определить ID проекта"}
+            return {"status": "error", "message": f"❌ Не удалось определить ID проекта из: {project_id}"}
         
         project_id_clean = match.group(1)
         
         print(f"📤 Отправка отклика на проект {project_id_clean} (Freelancehunt)")
+        print(f"💰 Цена: {price} UAH, 📅 Срок: {deadline} дня")
         
         url = "https://api.freelancehunt.com/v2/bids"
         
@@ -341,10 +337,12 @@ def send_bid(project_id, price, deadline, comment):
             "comment": comment
         }
         
+        print(f"📦 Данные: {json.dumps(data, ensure_ascii=False)}")
+        
         response = requests.post(url, json=data, headers=headers, timeout=30)
         
         print(f"   Статус: {response.status_code}")
-        print(f"   Ответ: {response.text[:200]}")
+        print(f"   Ответ: {response.text[:500]}")
         
         if response.status_code == 201 or response.status_code == 200:
             return {"status": "success", "data": response.json()}
@@ -423,35 +421,22 @@ def generate_ai_bid(project_title, project_description, project_category):
 Готов обсудить детали и предложить лучшее решение. Жду вашего ответа!"""
 
 
-def send_telegram_message_with_bid_button(text, button_url, project_id):
-    """Отправляет сообщение с кнопками в зависимости от платформы"""
+def send_telegram_message_with_buttons(text, button_url, project_id):
+    """Отправляет сообщение с кнопками: Открыть и AI ответ"""
     if not BOT_TOKEN or not CHAT_ID:
         print("❌ BOT_TOKEN или CHAT_ID не заданы!")
         return None
 
-    # Проверяем, что это Freelancehunt
-    is_freelancehunt = "freelancehunt.com" in button_url
-    
-    if is_freelancehunt:
-        # Для Freelancehunt — две кнопки: Открыть и Откликнуться
-        short_id = get_short_id(project_id)
-        keyboard = {
-            "inline_keyboard": [
-                [
-                    {"text": "🔗 Открыть", "url": button_url.strip()},
-                    {"text": "💼 Откликнуться", "callback_data": f"bid_{short_id}"}
-                ]
+    short_id = get_short_id(project_id)
+
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {"text": "🔗 Открыть", "url": button_url.strip()},
+                {"text": "💼 Откликнуться", "callback_data": f"bid_{short_id}"}
             ]
-        }
-    else:
-        # Для Kabanchik и Weblancer — только Открыть
-        keyboard = {
-            "inline_keyboard": [
-                [
-                    {"text": "🔗 Открыть", "url": button_url.strip()}
-                ]
-            ]
-        }
+        ]
+    }
 
     payload = {
         "chat_id": CHAT_ID,
@@ -504,25 +489,6 @@ def create_help_keyboard():
     }
 
 
-def create_template_keyboard():
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "💰 Цена", "callback_data": "template_price"},
-                {"text": "📅 Срок", "callback_data": "template_deadline"}
-            ],
-            [
-                {"text": "🎯 Стиль", "callback_data": "template_style"},
-                {"text": "📝 Доп. текст", "callback_data": "template_text"}
-            ],
-            [
-                {"text": "📋 Показать шаблон", "callback_data": "template_show"},
-                {"text": "🏠 Меню", "callback_data": "show_main_menu"}
-            ]
-        ]
-    }
-
-
 def create_settings_keyboard():
     return {
         "inline_keyboard": [
@@ -535,10 +501,7 @@ def create_settings_keyboard():
                 {"text": "📁 Kabanchik", "callback_data": "show_kb_categories"}
             ],
             [
-                {"text": "📝 Шаблон отклика", "callback_data": "open_template"},
-                {"text": "🔄 Сброс", "callback_data": "reset_config"}
-            ],
-            [
+                {"text": "🔄 Сброс", "callback_data": "reset_config"},
                 {"text": "❌ Закрыть", "callback_data": "close_settings"}
             ]
         ]
@@ -601,12 +564,6 @@ def get_settings_text(config):
 
     for cat, enabled in config["kabanchik"]["categories"].items():
         text += f"{'✅' if enabled else '❌'} {cat}\n"
-
-    text += "\n\n📝 <b>ШАБЛОН ОТКЛИКА:</b>\n"
-    text += f"💰 Цена: {template['price']} UAH\n"
-    text += f"📅 Срок: {template['deadline']} дня\n"
-    text += f"🎯 Стиль: {template['style']}\n"
-    text += f"📝 Доп. текст: {template['extra_text']}"
 
     return text
 
@@ -951,7 +908,7 @@ def parse_freelancehunt():
                     title, summary, category, budget, currency
                 )
 
-                send_telegram_message_with_bid_button(
+                send_telegram_message_with_buttons(
                     message_text,
                     link,
                     project_id
@@ -1030,11 +987,15 @@ def parse_kabanchik():
                     title, category, "Описание на сайте", None, ""
                 )
 
-                send_telegram_message_with_bid_button(
-                    message_text,
-                    full_link,
-                    full_link
-                )
+                # Для Kabanchik — только кнопка "Открыть" (без отклика)
+                keyboard = {
+                    "inline_keyboard": [
+                        [
+                            {"text": "🔗 Открыть", "url": full_link}
+                        ]
+                    ]
+                }
+                send_telegram_message(message_text, keyboard)
             
             if 'category' in locals():
                 update_check_stats("kabanchik", category, count_in_category)
@@ -1129,11 +1090,15 @@ def parse_weblancer():
                             title, description, budget_text, link
                         )
                         
-                        send_telegram_message_with_bid_button(
-                            message_text,
-                            link,
-                            project_id
-                        )
+                        # Для Weblancer — только кнопка "Открыть"
+                        keyboard = {
+                            "inline_keyboard": [
+                                [
+                                    {"text": "🔗 Открыть", "url": link}
+                                ]
+                            ]
+                        }
+                        send_telegram_message(message_text, keyboard)
                         
                     except Exception as e:
                         continue
@@ -1179,7 +1144,6 @@ def handle_updates():
                     text = message.get("text", "").strip()
                     chat_id = message["chat"]["id"]
 
-                    # Обработка ввода для настройки шаблона
                     if waiting_for_template_input:
                         if template_input_type == "price":
                             try:
@@ -1254,6 +1218,7 @@ def handle_updates():
                     message_id = cb["message"]["message_id"]
                     config = ensure_config_exists()
 
+                    # 🔥 Обработка кнопки "Откликнуться"
                     if data.startswith("bid_"):
                         short_id = data.replace("bid_", "")
                         project_id = None
@@ -1265,7 +1230,7 @@ def handle_updates():
                         if project_id and project_id in pending_orders:
                             order = pending_orders[project_id]
                             
-                            # 🔥 ПРОВЕРКА: только Freelancehunt!
+                            # 🔥 Проверяем, что это Freelancehunt
                             if "freelancehunt.com" not in order.get("link", ""):
                                 send_telegram_message(
                                     "❌ Автоотклик доступен ТОЛЬКО для заказов с Freelancehunt.\n"
@@ -1316,6 +1281,7 @@ def handle_updates():
                                 "show_alert": True
                             })
 
+                    # Отправка отклика
                     elif data.startswith("send_"):
                         short_id = data.replace("send_", "")
                         project_id = None
@@ -1428,6 +1394,7 @@ def handle_updates():
                             "show_alert": False
                         })
 
+                    # Остальные обработчики (настройки, меню и т.д.)
                     elif data == "open_template":
                         send_telegram_message(
                             "📝 <b>НАСТРОЙКА ШАБЛОНА ОТКЛИКА</b>\n\n"
