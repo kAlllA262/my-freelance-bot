@@ -313,13 +313,19 @@ def send_bid(project_id, price, deadline, comment):
         return {"status": "error", "message": "API-ключ не настроен"}
     
     try:
-        project_id_clean = project_id.split('/')[-1].split('?')[0]
-        if not project_id_clean.isdigit():
-            match = re.search(r'/(\d+)/?', project_id)
-            if match:
-                project_id_clean = match.group(1)
-            else:
-                return {"status": "error", "message": "Не удалось определить ID проекта"}
+        # Проверяем, что это Freelancehunt
+        if "freelancehunt.com" not in project_id:
+            return {"status": "error", "message": "Поддерживаются только заказы с Freelancehunt"}
+        
+        # Извлекаем ID проекта
+        import re
+        match = re.search(r'/(\d+)/?', project_id)
+        if not match:
+            return {"status": "error", "message": f"Не удалось определить ID проекта"}
+        
+        project_id_clean = match.group(1)
+        
+        print(f"📤 Отправка отклика на проект {project_id_clean}")
         
         url = "https://api.freelancehunt.com/v2/bids"
         
@@ -336,9 +342,10 @@ def send_bid(project_id, price, deadline, comment):
             "comment": comment
         }
         
-        print(f"📤 Отправка отклика на проект {project_id_clean}")
-        
         response = requests.post(url, json=data, headers=headers, timeout=30)
+        
+        print(f"   Статус: {response.status_code}")
+        print(f"   Ответ: {response.text[:200]}")
         
         if response.status_code == 201 or response.status_code == 200:
             return {"status": "success", "data": response.json()}
@@ -1236,10 +1243,9 @@ def handle_updates():
                     message_id = cb["message"]["message_id"]
                     config = ensure_config_exists()
 
-                    # 🔥 Обработка кнопки "Откликнуться" с коротким ID
+                    # 🔥 Обработка кнопки "Откликнуться"
                     if data.startswith("bid_"):
                         short_id = data.replace("bid_", "")
-                        # Ищем project_id по короткому ID
                         project_id = None
                         for pid in pending_orders.keys():
                             if get_short_id(pid) == short_id:
@@ -1248,6 +1254,19 @@ def handle_updates():
                         
                         if project_id and project_id in pending_orders:
                             order = pending_orders[project_id]
+                            
+                            # ✅ Проверяем, что это заказ с Freelancehunt
+                            if "freelancehunt.com" not in order.get("link", ""):
+                                send_telegram_message(
+                                    "❌ Автоотклик доступен ТОЛЬКО для заказов с Freelancehunt.\n"
+                                    "Для этого заказа откройте ссылку и откликнитесь вручную."
+                                )
+                                telegram_api("answerCallbackQuery", {
+                                    "callback_query_id": cid,
+                                    "text": "❌ Только Freelancehunt",
+                                    "show_alert": True
+                                })
+                                continue
                             
                             bid_text = generate_ai_bid(
                                 order["title"],
@@ -1287,7 +1306,7 @@ def handle_updates():
                                 "show_alert": True
                             })
 
-                    # 🆕 Отправка отклика
+                    # Отправка отклика
                     elif data.startswith("send_"):
                         short_id = data.replace("send_", "")
                         project_id = None
@@ -1341,7 +1360,6 @@ def handle_updates():
                                 "show_alert": True
                             })
 
-                    # 🆕 Перегенерация отклика
                     elif data.startswith("regenerate_"):
                         short_id = data.replace("regenerate_", "")
                         project_id = None
@@ -1390,7 +1408,6 @@ def handle_updates():
                                 "show_alert": True
                             })
 
-                    # 🆕 Отмена
                     elif data.startswith("cancel_"):
                         telegram_api("deleteMessage", {
                             "chat_id": chat_id,
@@ -1402,7 +1419,6 @@ def handle_updates():
                             "show_alert": False
                         })
 
-                    # 🆕 Настройка шаблона
                     elif data == "open_template":
                         send_telegram_message(
                             "📝 <b>НАСТРОЙКА ШАБЛОНА ОТКЛИКА</b>\n\n"
