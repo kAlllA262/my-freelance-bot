@@ -424,22 +424,34 @@ def generate_ai_bid(project_title, project_description, project_category):
 
 
 def send_telegram_message_with_bid_button(text, button_url, project_id):
-    """Отправляет сообщение с кнопками: Открыть и Откликнуться"""
+    """Отправляет сообщение с кнопками в зависимости от платформы"""
     if not BOT_TOKEN or not CHAT_ID:
         print("❌ BOT_TOKEN или CHAT_ID не заданы!")
         return None
 
-    # Используем короткий ID для callback_data (максимум 64 символа)
-    short_id = get_short_id(project_id)
-
-    keyboard = {
-        "inline_keyboard": [
-            [
-                {"text": "🔗 Открыть", "url": button_url.strip()},
-                {"text": "💼 Откликнуться", "callback_data": f"bid_{short_id}"}
+    # Проверяем, что это Freelancehunt
+    is_freelancehunt = "freelancehunt.com" in button_url
+    
+    if is_freelancehunt:
+        # Для Freelancehunt — две кнопки: Открыть и Откликнуться
+        short_id = get_short_id(project_id)
+        keyboard = {
+            "inline_keyboard": [
+                [
+                    {"text": "🔗 Открыть", "url": button_url.strip()},
+                    {"text": "💼 Откликнуться", "callback_data": f"bid_{short_id}"}
+                ]
             ]
-        ]
-    }
+        }
+    else:
+        # Для Kabanchik и Weblancer — только Открыть
+        keyboard = {
+            "inline_keyboard": [
+                [
+                    {"text": "🔗 Открыть", "url": button_url.strip()}
+                ]
+            ]
+        }
 
     payload = {
         "chat_id": CHAT_ID,
