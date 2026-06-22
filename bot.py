@@ -312,12 +312,11 @@ def send_bid(project_id, price, deadline, comment):
     if not FH_API_TOKEN:
         return {"status": "error", "message": "API-ключ не настроен"}
     
+    # 🔥 Строгая проверка: только Freelancehunt!
+    if "freelancehunt.com" not in project_id:
+        return {"status": "error", "message": "❌ Автоотклик работает ТОЛЬКО для заказов с Freelancehunt"}
+    
     try:
-        # Проверяем, что это Freelancehunt
-        if "freelancehunt.com" not in project_id:
-            return {"status": "error", "message": "Поддерживаются только заказы с Freelancehunt"}
-        
-        # Извлекаем ID проекта
         import re
         match = re.search(r'/(\d+)/?', project_id)
         if not match:
@@ -325,7 +324,7 @@ def send_bid(project_id, price, deadline, comment):
         
         project_id_clean = match.group(1)
         
-        print(f"📤 Отправка отклика на проект {project_id_clean}")
+        print(f"📤 Отправка отклика на проект {project_id_clean} (Freelancehunt)")
         
         url = "https://api.freelancehunt.com/v2/bids"
         
@@ -1243,7 +1242,6 @@ def handle_updates():
                     message_id = cb["message"]["message_id"]
                     config = ensure_config_exists()
 
-                    # 🔥 Обработка кнопки "Откликнуться"
                     if data.startswith("bid_"):
                         short_id = data.replace("bid_", "")
                         project_id = None
@@ -1255,7 +1253,7 @@ def handle_updates():
                         if project_id and project_id in pending_orders:
                             order = pending_orders[project_id]
                             
-                            # ✅ Проверяем, что это заказ с Freelancehunt
+                            # 🔥 ПРОВЕРКА: только Freelancehunt!
                             if "freelancehunt.com" not in order.get("link", ""):
                                 send_telegram_message(
                                     "❌ Автоотклик доступен ТОЛЬКО для заказов с Freelancehunt.\n"
@@ -1306,7 +1304,6 @@ def handle_updates():
                                 "show_alert": True
                             })
 
-                    # Отправка отклика
                     elif data.startswith("send_"):
                         short_id = data.replace("send_", "")
                         project_id = None
