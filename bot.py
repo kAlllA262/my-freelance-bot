@@ -351,19 +351,15 @@ def send_bid(project_id, price, deadline, comment):
 
 
 def generate_ai_bid(project_title, project_description, project_category):
-    """Генерирует уникальный отклик для заказа"""
+    """Генерирует уникальный отклик для заказа (без цены и сроков)"""
     if not GEMINI_API_KEY:
         return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
 
-Я специализируюсь в области {project_category} и имею успешный опыт.
+Я специализируюсь в области {project_category} и имею успешный опыт в подобных проектах.
 
-Моё предложение:
-• Стоимость: {template['price']} UAH
-• Срок: {template['deadline']} дня
+Могу предложить качественное выполнение работы с индивидуальным подходом к вашей задаче.
 
-{template['extra_text']}
-
-Жду вашего ответа для обсуждения деталей!"""
+Буду рад обсудить детали, стоимость и сроки. Жду вашего ответа!"""
     
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
@@ -380,7 +376,8 @@ def generate_ai_bid(project_title, project_description, project_category):
 2. Показать понимание задачи (упомяни детали из описания)
 3. Предложить конкретные идеи решения
 4. Быть уверенным и профессиональным
-5. Обязательно указать цену {template['price']} UAH и срок {template['deadline']} дня
+5. НЕ УПОМИНАТЬ цену и сроки — ты ещё не знаешь всех нюансов проекта
+6. Заканчиваться призывом обсудить детали
 
 Стиль: {template['style']}
 
@@ -405,15 +402,11 @@ def generate_ai_bid(project_title, project_description, project_category):
         
         return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
 
-Я специализируюсь в области {project_category} и имею успешный опыт.
+Я специализируюсь в области {project_category} и имею успешный опыт в подобных проектах.
 
-Моё предложение:
-• Стоимость: {template['price']} UAH
-• Срок: {template['deadline']} дня
+Могу предложить качественное выполнение работы с индивидуальным подходом.
 
-{template['extra_text']}
-
-Готов обсудить детали. Жду вашего ответа!"""
+Буду рад обсудить детали, стоимость и сроки. Жду вашего ответа!"""
             
     except Exception as e:
         log_error("gemini", str(e)[:30])
@@ -421,11 +414,7 @@ def generate_ai_bid(project_title, project_description, project_category):
 
 Я специализируюсь в области {project_category} и имею опыт в таких проектах.
 
-Моё предложение: {template['price']} UAH, срок {template['deadline']} дня.
-
-{template['extra_text']}
-
-Жду вашего ответа для обсуждения деталей!"""
+Готов обсудить детали и предложить лучшее решение. Жду вашего ответа!"""
 
 
 def send_telegram_message_with_bid_button(text, button_url, project_id):
