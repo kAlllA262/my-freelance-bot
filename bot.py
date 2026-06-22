@@ -134,6 +134,11 @@ check_stats = {
     }
 }
 
+def get_short_id(project_id):
+    """Генерирует короткий ID для callback_data (максимум 64 символа)"""
+    return hashlib.md5(project_id.encode()).hexdigest()[:8]
+
+
 def update_check_stats(platform, category, count):
     kiev_time = time.localtime(time.time() + 10800)
     time_str = time.strftime('%d.%m.%Y %H:%M', kiev_time)
@@ -169,9 +174,6 @@ def log_error(error_type, message):
     errors["last_errors"].append(f"{error_type.capitalize()}: {time_str} - {message}")
     if len(errors["last_errors"]) > 10:
         errors["last_errors"] = errors["last_errors"][-10:]
-
-def get_short_id(project_id):
-    return hashlib.md5(project_id.encode()).hexdigest()[:8]
 
 
 class HealthCheckServer(BaseHTTPRequestHandler):
@@ -432,11 +434,14 @@ def send_telegram_message_with_bid_button(text, button_url, project_id):
         print("❌ BOT_TOKEN или CHAT_ID не заданы!")
         return None
 
+    # Используем короткий ID для callback_data (максимум 64 символа)
+    short_id = get_short_id(project_id)
+
     keyboard = {
         "inline_keyboard": [
             [
                 {"text": "🔗 Открыть", "url": button_url.strip()},
-                {"text": "💼 Откликнуться", "callback_data": f"bid_{project_id}"}
+                {"text": "💼 Откликнуться", "callback_data": f"bid_{short_id}"}
             ]
         ]
     }
@@ -1242,10 +1247,17 @@ def handle_updates():
                     message_id = cb["message"]["message_id"]
                     config = ensure_config_exists()
 
+                    # 🔥 Обработка кнопки "Откликнуться" с коротким ID
                     if data.startswith("bid_"):
-                        project_id = data.replace("bid_", "")
+                        short_id = data.replace("bid_", "")
+                        # Ищем project_id по короткому ID
+                        project_id = None
+                        for pid in pending_orders.keys():
+                            if get_short_id(pid) == short_id:
+                                project_id = pid
+                                break
                         
-                        if project_id in pending_orders:
+                        if project_id and project_id in pending_orders:
                             order = pending_orders[project_id]
                             
                             bid_text = generate_ai_bid(
@@ -1266,9 +1278,9 @@ def handle_updates():
                                 {
                                     "inline_keyboard": [
                                         [
-                                            {"text": "✅ Отправить", "callback_data": f"send_{project_id}"},
-                                            {"text": "🔄 Перегенерировать", "callback_data": f"regenerate_{project_id}"},
-                                            {"text": "❌ Отмена", "callback_data": f"cancel_{project_id}"}
+                                            {"text": "✅ Отправить", "callback_data": f"send_{short_id}"},
+                                            {"text": "🔄 Перегенерировать", "callback_data": f"regenerate_{short_id}"},
+                                            {"text": "❌ Отмена", "callback_data": f"cancel_{short_id}"}
                                         ]
                                     ]
                                 }
@@ -1286,10 +1298,16 @@ def handle_updates():
                                 "show_alert": True
                             })
 
+                    # 🆕 Отправка отклика
                     elif data.startswith("send_"):
-                        project_id = data.replace("send_", "")
+                        short_id = data.replace("send_", "")
+                        project_id = None
+                        for pid in pending_orders.keys():
+                            if get_short_id(pid) == short_id:
+                                project_id = pid
+                                break
                         
-                        if project_id in pending_orders:
+                        if project_id and project_id in pending_orders:
                             order = pending_orders[project_id]
                             bid_text = ai_responses_cache.get(project_id, "")
                             
@@ -1334,10 +1352,16 @@ def handle_updates():
                                 "show_alert": True
                             })
 
+                    # 🆕 Перегенерация отклика
                     elif data.startswith("regenerate_"):
-                        project_id = data.replace("regenerate_", "")
+                        short_id = data.replace("regenerate_", "")
+                        project_id = None
+                        for pid in pending_orders.keys():
+                            if get_short_id(pid) == short_id:
+                                project_id = pid
+                                break
                         
-                        if project_id in pending_orders:
+                        if project_id and project_id in pending_orders:
                             order = pending_orders[project_id]
                             
                             bid_text = generate_ai_bid(
@@ -1357,9 +1381,9 @@ def handle_updates():
                                 {
                                     "inline_keyboard": [
                                         [
-                                            {"text": "✅ Отправить", "callback_data": f"send_{project_id}"},
-                                            {"text": "🔄 Перегенерировать", "callback_data": f"regenerate_{project_id}"},
-                                            {"text": "❌ Отмена", "callback_data": f"cancel_{project_id}"}
+                                            {"text": "✅ Отправить", "callback_data": f"send_{short_id}"},
+                                            {"text": "🔄 Перегенерировать", "callback_data": f"regenerate_{short_id}"},
+                                            {"text": "❌ Отмена", "callback_data": f"cancel_{short_id}"}
                                         ]
                                     ]
                                 }
@@ -1377,6 +1401,7 @@ def handle_updates():
                                 "show_alert": True
                             })
 
+                    # 🆕 Отмена
                     elif data.startswith("cancel_"):
                         telegram_api("deleteMessage", {
                             "chat_id": chat_id,
@@ -1388,6 +1413,7 @@ def handle_updates():
                             "show_alert": False
                         })
 
+                    # 🆕 Настройка шаблона
                     elif data == "open_template":
                         send_telegram_message(
                             "📝 <b>НАСТРОЙКА ШАБЛОНА ОТКЛИКА</b>\n\n"
