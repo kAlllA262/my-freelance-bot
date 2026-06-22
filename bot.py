@@ -15,15 +15,19 @@ CHAT_ID = os.environ.get("CHAT_ID")
 PORT = int(os.environ.get("PORT", 10000))
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-FH_API_TOKEN = os.environ.get("FH_API_TOKEN")  # API-ключ Freelancehunt
+FH_API_TOKEN = os.environ.get("FH_API_TOKEN")
 
-# Шаблон отклика (настраивается через /template)
+# Шаблон отклика
 template = {
     "price": 500,
     "deadline": 3,
     "style": "Профессиональный",
     "extra_text": "Могу предоставить портфолио по запросу."
 }
+
+# Ожидание ввода для шаблона
+waiting_for_template_input = False
+template_input_type = None  # "price", "deadline", "text"
 
 FH_CATEGORIES = {
     "ai_video": "https://freelancehunt.com/projects.rss?skills%5B%5D=192",
@@ -109,7 +113,6 @@ errors = {
     "last_errors": []
 }
 
-# Статистика проверок
 check_stats = {
     "freelancehunt": {
         "last_check": None,
@@ -132,7 +135,6 @@ check_stats = {
 }
 
 def update_check_stats(platform, category, count):
-    """Обновляет статистику проверок"""
     kiev_time = time.localtime(time.time() + 10800)
     time_str = time.strftime('%d.%m.%Y %H:%M', kiev_time)
     
@@ -156,7 +158,6 @@ def update_check_stats(platform, category, count):
             check_stats["weblancer"]["keywords"][category] = check_stats["weblancer"]["keywords"].get(category, 0) + count
 
 def log_error(error_type, message):
-    """Записывает ошибку с Киевским временем (UTC+3)"""
     kiev_time = time.localtime(time.time() + 10800)
     time_str = time.strftime('%H:%M', kiev_time)
     
@@ -310,10 +311,8 @@ def send_bid(project_id, price, deadline, comment):
         return {"status": "error", "message": "API-ключ не настроен"}
     
     try:
-        # Получаем ID проекта из ссылки
         project_id_clean = project_id.split('/')[-1].split('?')[0]
         if not project_id_clean.isdigit():
-            # Пробуем извлечь ID из URL
             match = re.search(r'/(\d+)/?', project_id)
             if match:
                 project_id_clean = match.group(1)
@@ -336,7 +335,6 @@ def send_bid(project_id, price, deadline, comment):
         }
         
         print(f"📤 Отправка отклика на проект {project_id_clean}")
-        print(f"   Данные: цена={price}, срок={deadline}")
         
         response = requests.post(url, json=data, headers=headers, timeout=30)
         
@@ -403,7 +401,6 @@ def generate_ai_bid(project_title, project_description, project_category):
             if ai_text:
                 return ai_text.strip()
         
-        print(f"DEBUG: Gemini error: {response.status_code}")
         return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
 
 Я специализируюсь в области {project_category} и имею успешный опыт.
@@ -478,7 +475,6 @@ def create_main_keyboard():
 
 
 def create_help_keyboard():
-    """Клавиатура для меню помощи"""
     return {
         "inline_keyboard": [
             [
@@ -497,7 +493,6 @@ def create_help_keyboard():
 
 
 def create_template_keyboard():
-    """Клавиатура для настройки шаблона"""
     return {
         "inline_keyboard": [
             [
@@ -744,7 +739,6 @@ def format_kabanchik_message(title, category, description="Описание на
 
 
 def format_weblancer_message(title, description, budget_text, link):
-    """Форматирует сообщение для Weblancer"""
     title, title_translated = maybe_translate(title)
     description, description_translated = maybe_translate(description)
 
@@ -937,7 +931,6 @@ def parse_freelancehunt():
                     "link": link
                 }
 
-                # Генерируем AI-отклик заранее (он будет использоваться при нажатии на кнопку)
                 bid_text = generate_ai_bid(title, summary, category)
                 ai_responses_cache[project_id] = bid_text
                 stats["ai_generated"] += 1
@@ -980,7 +973,6 @@ def parse_kabanchik():
             
             count_in_category = 0
             
-            # Определяем категорию по URL
             if "ai-poslugi" in url:
                 category = "AI услуги"
             elif "dyzayn" in url:
@@ -990,7 +982,6 @@ def parse_kabanchik():
             else:
                 category = "Без категории"
 
-            # Ищем ссылки на заказы
             for a in soup.find_all("a", href=True):
                 href = a["href"]
                 title = a.get_text(" ", strip=True)
@@ -998,7 +989,6 @@ def parse_kabanchik():
                 if not title or len(title) < 5:
                     continue
 
-                # Проверяем, что ссылка ведёт на заказ
                 if "task" not in href and "project" not in href:
                     continue
 
@@ -1024,7 +1014,6 @@ def parse_kabanchik():
                     "link": full_link
                 }
 
-                # Для Kabanchik не отправляем отклики (нет API)
                 message_text = format_kabanchik_message(
                     title, category, "Описание на сайте", None, ""
                 )
@@ -1035,7 +1024,6 @@ def parse_kabanchik():
                     full_link
                 )
             
-            # Обновляем статистику
             if 'category' in locals():
                 update_check_stats("kabanchik", category, count_in_category)
             else:
@@ -1125,7 +1113,6 @@ def parse_weblancer():
                             "link": link
                         }
                         
-                        # Для Weblancer не отправляем отклики
                         message_text = format_weblancer_message(
                             title, description, budget_text, link
                         )
@@ -1155,6 +1142,8 @@ def parse_weblancer():
 
 
 def handle_updates():
+    global waiting_for_template_input, template_input_type
+    
     offset = 0
     while True:
         try:
@@ -1176,11 +1165,62 @@ def handle_updates():
                 if "message" in u:
                     message = u["message"]
                     text = message.get("text", "").strip()
+                    chat_id = message["chat"]["id"]
+
+                    # Обработка ввода для настройки шаблона
+                    if waiting_for_template_input:
+                        if template_input_type == "price":
+                            try:
+                                new_price = int(text)
+                                if 0 < new_price < 100000:
+                                    template["price"] = new_price
+                                    send_telegram_message(f"✅ Цена установлена: {template['price']} UAH")
+                                else:
+                                    send_telegram_message("❌ Введите корректную цену (от 1 до 100000)")
+                            except:
+                                send_telegram_message("❌ Введите число")
+                            waiting_for_template_input = False
+                            template_input_type = None
+                            continue
+                        
+                        elif template_input_type == "deadline":
+                            try:
+                                new_deadline = int(text)
+                                if 0 < new_deadline < 365:
+                                    template["deadline"] = new_deadline
+                                    send_telegram_message(f"✅ Срок установлен: {template['deadline']} дня")
+                                else:
+                                    send_telegram_message("❌ Введите корректный срок (от 1 до 365)")
+                            except:
+                                send_telegram_message("❌ Введите число")
+                            waiting_for_template_input = False
+                            template_input_type = None
+                            continue
+                        
+                        elif template_input_type == "text":
+                            if len(text) > 3:
+                                template["extra_text"] = text
+                                send_telegram_message(f"✅ Дополнительный текст сохранён:\n{template['extra_text']}")
+                            else:
+                                send_telegram_message("❌ Текст должен быть длиннее 3 символов")
+                            waiting_for_template_input = False
+                            template_input_type = None
+                            continue
 
                     if text == "/start":
                         send_telegram_message("🏠 <b>ГЛАВНОЕ МЕНЮ</b>\n\nВыберите действие:", create_main_keyboard())
                     elif text == "/settings":
                         send_telegram_message("⚙️ <b>Настройки</b>", create_settings_keyboard())
+                    elif text == "/template":
+                        send_telegram_message(
+                            "📝 <b>НАСТРОЙКА ШАБЛОНА ОТКЛИКА</b>\n\n"
+                            f"💰 Цена: {template['price']} UAH\n"
+                            f"📅 Срок: {template['deadline']} дня\n"
+                            f"🎯 Стиль: {template['style']}\n"
+                            f"📝 Доп. текст: {template['extra_text']}\n\n"
+                            "Выберите, что изменить:",
+                            create_template_keyboard()
+                        )
                     elif text == "/help":
                         send_telegram_message(
                             "📚 <b>ДОСТУПНЫЕ ДЕЙСТВИЯ:</b>\n\n"
@@ -1202,24 +1242,20 @@ def handle_updates():
                     message_id = cb["message"]["message_id"]
                     config = ensure_config_exists()
 
-                    # 🆕 Обработка кнопки "Откликнуться"
                     if data.startswith("bid_"):
                         project_id = data.replace("bid_", "")
                         
                         if project_id in pending_orders:
                             order = pending_orders[project_id]
                             
-                            # Генерируем уникальный отклик
                             bid_text = generate_ai_bid(
                                 order["title"],
                                 order["description"],
                                 order["category"]
                             )
                             
-                            # Сохраняем в кэш
                             ai_responses_cache[project_id] = bid_text
                             
-                            # Показываем подтверждение
                             send_telegram_message(
                                 f"📤 <b>ПОДТВЕРЖДЕНИЕ ОТКЛИКА</b>\n\n"
                                 f"📌 <b>Заказ:</b> {order['title']}\n\n"
@@ -1250,7 +1286,6 @@ def handle_updates():
                                 "show_alert": True
                             })
 
-                    # 🆕 Отправка отклика
                     elif data.startswith("send_"):
                         project_id = data.replace("send_", "")
                         
@@ -1265,7 +1300,6 @@ def handle_updates():
                                     order["category"]
                                 )
                             
-                            # Отправляем отклик через API
                             result = send_bid(
                                 project_id,
                                 template['price'],
@@ -1300,14 +1334,12 @@ def handle_updates():
                                 "show_alert": True
                             })
 
-                    # 🆕 Перегенерация отклика
                     elif data.startswith("regenerate_"):
                         project_id = data.replace("regenerate_", "")
                         
                         if project_id in pending_orders:
                             order = pending_orders[project_id]
                             
-                            # Генерируем новый отклик
                             bid_text = generate_ai_bid(
                                 order["title"],
                                 order["description"],
@@ -1315,7 +1347,6 @@ def handle_updates():
                             )
                             ai_responses_cache[project_id] = bid_text
                             
-                            # Обновляем сообщение с подтверждением
                             send_telegram_message(
                                 f"📤 <b>ПОДТВЕРЖДЕНИЕ ОТКЛИКА</b>\n\n"
                                 f"📌 <b>Заказ:</b> {order['title']}\n\n"
@@ -1346,7 +1377,6 @@ def handle_updates():
                                 "show_alert": True
                             })
 
-                    # 🆕 Отмена
                     elif data.startswith("cancel_"):
                         telegram_api("deleteMessage", {
                             "chat_id": chat_id,
@@ -1358,7 +1388,6 @@ def handle_updates():
                             "show_alert": False
                         })
 
-                    # 🆕 Настройка шаблона
                     elif data == "open_template":
                         send_telegram_message(
                             "📝 <b>НАСТРОЙКА ШАБЛОНА ОТКЛИКА</b>\n\n"
@@ -1371,12 +1400,13 @@ def handle_updates():
                         )
 
                     elif data == "template_price":
+                        waiting_for_template_input = True
+                        template_input_type = "price"
                         send_telegram_message(
                             f"💰 <b>Текущая цена:</b> {template['price']} UAH\n\n"
                             "Отправьте новую цену сообщением.\n"
                             "Например: <code>500</code>"
                         )
-                        # Сохраняем состояние, что ждём цену
                         telegram_api("answerCallbackQuery", {
                             "callback_query_id": cid,
                             "text": "💰 Введите новую цену",
@@ -1384,6 +1414,8 @@ def handle_updates():
                         })
 
                     elif data == "template_deadline":
+                        waiting_for_template_input = True
+                        template_input_type = "deadline"
                         send_telegram_message(
                             f"📅 <b>Текущий срок:</b> {template['deadline']} дня\n\n"
                             "Отправьте новый срок сообщением.\n"
@@ -1435,6 +1467,8 @@ def handle_updates():
                         })
 
                     elif data == "template_text":
+                        waiting_for_template_input = True
+                        template_input_type = "text"
                         send_telegram_message(
                             f"📝 <b>Текущий дополнительный текст:</b>\n{template['extra_text']}\n\n"
                             "Отправьте новый текст сообщением.\n"
@@ -1565,29 +1599,6 @@ def handle_updates():
         except Exception as e:
             print(f"DEBUG: Ошибка в handle_updates: {e}")
             time.sleep(5)
-
-                    # Обработка ввода для настройки шаблона (цена, срок, текст)
-                    # Добавь это в начало handle_updates, где обрабатываются сообщения
-                    # Проверяем, есть ли ожидание ввода для шаблона
-                    if "message" in u and "text" in u["message"]:
-                        msg_text = u["message"]["text"].strip()
-                        # Проверяем, не является ли это числом для цены или срока
-                        if msg_text.isdigit():
-                            # Проверяем, не ждём ли мы цену или срок
-                            # Для простоты можно использовать глобальную переменную или состояние
-                            # Пока просто обновляем шаблон, если это число
-                            if 0 < int(msg_text) < 10000:
-                                # Если цена и срок не установлены явно, обновляем оба
-                                if 'price' not in template or template['price'] == 0:
-                                    template['price'] = int(msg_text)
-                                    send_telegram_message(f"✅ Цена установлена: {template['price']} UAH")
-                                elif 'deadline' not in template or template['deadline'] == 0:
-                                    template['deadline'] = int(msg_text)
-                                    send_telegram_message(f"✅ Срок установлен: {template['deadline']} дня")
-                        # Если текст не число, обновляем дополнительный текст
-                        elif len(msg_text) > 5:
-                            template['extra_text'] = msg_text
-                            send_telegram_message(f"✅ Дополнительный текст сохранён:\n{template['extra_text']}")
 
 
 def monitor_freelancehunt():
