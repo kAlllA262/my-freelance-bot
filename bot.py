@@ -1,6 +1,6 @@
 import time
 import requests
-import feedparser6 as feedparser
+import feedparser
 import json
 import os
 import re
