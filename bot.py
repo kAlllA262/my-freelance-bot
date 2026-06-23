@@ -9,12 +9,6 @@ import hashlib
 from bs4 import BeautifulSoup
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
@@ -115,8 +109,8 @@ weblancer_sent_projects = set()
 pending_orders = {}
 ai_responses_cache = {}
 
-# Глобальная сессия для Kabanchik
-kabanchik_driver = None
+# Сессия для Kabanchik
+kabanchik_session = None
 
 stats = {
     "orders_found": 0,
@@ -834,186 +828,175 @@ def setup_bot_menu():
         ]
     })
 
-def setup_kabanchik_driver():
-    """Настройка Selenium WebDriver для Kabanchik"""
-    global kabanchik_driver
-    
-    try:
-        chrome_options = Options()
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--window-size=1920,1080")
-        chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-        
-        # Путь к Chromium на Render
-        chrome_options.binary_location = "/usr/bin/chromium-browser"
-        
-        kabanchik_driver = webdriver.Chrome(options=chrome_options)
-        print("WebDriver для Kabanchik создан")
-        return True
-    except Exception as e:
-        print(f"Ошибка создания WebDriver: {e}")
-        return False
-
 def login_to_kabanchik():
-    """Авторизация на Kabanchik"""
-    global kabanchik_driver
+    """Авторизация на Kabanchik через requests"""
+    global kabanchik_session
     
     try:
-        if not kabanchik_driver:
-            if not setup_kabanchik_driver():
-                return False
-        
         if not KABANCHIK_EMAIL or not KABANCHIK_PASSWORD:
             print("Не заданы KABANCHIK_EMAIL или KABANCHIK_PASSWORD")
             return False
         
         print("Выполняю вход на Kabanchik...")
-        kabanchik_driver.get(KABANCHIK_LOGIN_URL)
         
-        time.sleep(3)
+        # Создаем сессию
+        kabanchik_session = requests.Session()
+        kabanchik_session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        })
         
-        try:
-            email_input = WebDriverWait(kabanchik_driver, 10).until(
-                EC.presence_of_element_located((By.NAME, "email"))
-            )
-            email_input.send_keys(KABANCHIK_EMAIL)
-            
-            password_input = kabanchik_driver.find_element(By.NAME, "password")
-            password_input.send_keys(KABANCHIK_PASSWORD)
-            
-            login_button = kabanchik_driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
-            login_button.click()
-            
-            time.sleep(5)
-            
-            if "login" in kabanchik_driver.current_url.lower():
-                print("Вход на Kabanchik не удался")
-                return False
-            
-            print("Успешный вход на Kabanchik!")
-            return True
-            
-        except Exception as e:
-            print(f"Ошибка при входе на Kabanchik: {e}")
+        # Получаем страницу логина для CSRF токена
+        response = kabanchik_session.get(KABANCHIK_LOGIN_URL, timeout=30)
+        soup = BeautifulSoup(response.text, "html.parser")
+        
+        # Ищем CSRF токен
+        csrf_token = None
+        csrf_input = soup.find("input", {"name": "_token"})
+        if csrf_input:
+            csrf_token = csrf_input.get("value")
+        
+        # Данные для входа
+        login_data = {
+            "email": KABANCHIK_EMAIL,
+            "password": KABANCHIK_PASSWORD,
+            "_token": csrf_token or "",
+            "remember": "1"
+        }
+        
+        # Отправляем запрос на вход
+        response = kabanchik_session.post(
+            KABANCHIK_LOGIN_URL,
+            data=login_data,
+            timeout=30,
+            allow_redirects=True
+        )
+        
+        # Проверяем успешность входа
+        if "вход" in response.text.lower() or "login" in response.url.lower():
+            print("Вход на Kabanchik не удался")
             return False
-            
+        
+        print("Успешный вход на Kabanchik!")
+        return True
+        
     except Exception as e:
-        print(f"Ошибка авторизации: {e}")
+        print(f"Ошибка авторизации на Kabanchik: {e}")
         return False
 
 def parse_kabanchik_with_auth():
-    """Парсинг Kabanchik с авторизацией и поиском по ключевым словам"""
-    global kabanchik_driver, kabanchik_sent_tasks
+    """Парсинг Kabanchik с авторизацией"""
+    global kabanchik_session, kabanchik_sent_tasks
     
-    print("Начинаю парсинг Kabanchik с авторизацией...")
+    print("Начинаю парсинг Kabanchik...")
     config = ensure_config_exists()
     enabled_keywords = config.get("kabanchik", {}).get("keywords", KABANCHIK_KEYWORDS)
     min_budget = config.get("kabanchik", {}).get("min_budget", 0)
     
     try:
-        if not kabanchik_driver:
+        # Проверяем сессию
+        if not kabanchik_session:
             if not login_to_kabanchik():
                 print("Не удалось авторизоваться на Kabanchik")
                 return
         
         total_in_keyword = 0
         
-        for keyword in enabled_keywords[:10]:
+        # Парсим проекты
+        response = kabanchik_session.get(KABANCHIK_PROJECTS_URL, timeout=30)
+        
+        if response.status_code != 200:
+            print(f"Ошибка загрузки Kabanchik: {response.status_code}")
+            return
+        
+        soup = BeautifulSoup(response.text, "html.parser")
+        
+        # Ищем проекты
+        project_items = soup.find_all("div", class_="projects-item")
+        
+        if not project_items:
+            project_items = soup.find_all("div", class_="project-item")
+        
+        if not project_items:
+            project_items = soup.find_all("div", class_="list-item")
+        
+        count_in_category = 0
+        
+        for item in project_items:
             try:
-                print(f"Поиск по ключевому слову: {keyword}")
+                # Название
+                title_elem = item.find("a", class_="title") or item.find("h3") or item.find("h2")
+                if not title_elem:
+                    continue
                 
-                search_url = f"{KABANCHIK_PROJECTS_URL}?q={keyword.replace(' ', '+')}"
-                kabanchik_driver.get(search_url)
+                title = title_elem.get_text(strip=True)
                 
-                time.sleep(3)
+                # Ссылка
+                link_elem = title_elem if title_elem.name == "a" else title_elem.find("a")
+                if link_elem and link_elem.get("href"):
+                    link = KABANCHIK_BASE_URL + link_elem.get("href")
+                else:
+                    continue
                 
-                html = kabanchik_driver.page_source
-                soup = BeautifulSoup(html, "html.parser")
+                # Описание
+                desc_elem = item.find("div", class_="description") or item.find("p")
+                description = desc_elem.get_text(strip=True) if desc_elem else "Описание на сайте"
                 
-                count_in_keyword = 0
+                # Бюджет
+                budget_elem = item.find("div", class_="budget") or item.find("span", class_="price")
+                budget_text = budget_elem.get_text(strip=True) if budget_elem else ""
                 
-                project_items = soup.find_all("div", class_="projects-item")
+                project_id = link or title
                 
-                if not project_items:
-                    project_items = soup.find_all("div", class_="project-item")
+                # Проверяем, не отправляли ли уже
+                if project_id in kabanchik_sent_tasks:
+                    continue
                 
-                if not project_items:
-                    project_items = soup.find_all("div", class_="list-item")
+                # Проверяем ключевые слова
+                text_for_filter = f"{title} {description}".lower()
+                if not matches_keywords(text_for_filter, enabled_keywords):
+                    continue
                 
-                for item in project_items:
-                    try:
-                        title_elem = item.find("a", class_="title") or item.find("h3") or item.find("h2")
-                        if not title_elem:
-                            continue
-                        
-                        title = title_elem.get_text(strip=True)
-                        
-                        link_elem = title_elem if title_elem.name == "a" else title_elem.find("a")
-                        if link_elem and link_elem.get("href"):
-                            link = KABANCHIK_BASE_URL + link_elem.get("href")
-                        else:
-                            continue
-                        
-                        desc_elem = item.find("div", class_="description") or item.find("p")
-                        description = desc_elem.get_text(strip=True) if desc_elem else "Описание на сайте Kabanchik"
-                        
-                        budget_elem = item.find("div", class_="budget") or item.find("span", class_="price")
-                        budget_text = budget_elem.get_text(strip=True) if budget_elem else ""
-                        
-                        project_id = link or title
-                        
-                        if project_id in kabanchik_sent_tasks:
-                            continue
-                        
-                        if min_budget:
-                            budget, _ = extract_budget_and_currency(budget_text)
-                            if budget and budget < min_budget:
-                                continue
-                        
-                        kabanchik_sent_tasks.add(project_id)
-                        stats["orders_found"] += 1
-                        stats["kabanchik"] += 1
-                        count_in_keyword += 1
-                        total_in_keyword += 1
-                        
-                        message_text = format_kabanchik_message(
-                            title, description, None, ""
-                        )
-                        
-                        keyboard = {
-                            "inline_keyboard": [
-                                [
-                                    {"text": "🔗 Открыть на Kabanchik", "url": link}
-                                ]
-                            ]
-                        }
-                        
-                        send_telegram_message(message_text, keyboard)
-                        print(f"Найден заказ: {title[:50]}...")
-                        
-                    except Exception as e:
-                        print(f"Ошибка при обработке проекта: {e}")
+                # Проверяем бюджет
+                if min_budget:
+                    budget, _ = extract_budget_and_currency(budget_text)
+                    if budget and budget < min_budget:
                         continue
                 
-                update_check_stats("kabanchik", keyword, count_in_keyword)
-                print(f"По ключевому слову '{keyword}' найдено: {count_in_keyword} заказов")
-                        
+                # Отправляем
+                kabanchik_sent_tasks.add(project_id)
+                stats["orders_found"] += 1
+                stats["kabanchik"] += 1
+                count_in_category += 1
+                total_in_keyword += 1
+                
+                message_text = format_kabanchik_message(
+                    title, description, None, ""
+                )
+                
+                keyboard = {
+                    "inline_keyboard": [
+                        [
+                            {"text": "🔗 Открыть на Kabanchik", "url": link}
+                        ]
+                    ]
+                }
+                
+                send_telegram_message(message_text, keyboard)
+                print(f"Найден заказ: {title[:50]}...")
+                
             except Exception as e:
-                print(f"Ошибка поиска по ключевому слову {keyword}: {e}")
+                print(f"Ошибка при обработке проекта: {e}")
                 continue
         
+        update_check_stats("kabanchik", "Все заказы", count_in_category)
         check_stats["kabanchik"]["last_count"] = total_in_keyword
-        print(f"Kabanchik: всего найдено {total_in_keyword} заказов")
+        print(f"Kabanchik: найдено {total_in_keyword} заказов")
                 
     except Exception as e:
         log_error("kabanchik", str(e)[:30])
         print(f"Ошибка парсинга Kabanchik: {e}")
-        if "no such window" in str(e).lower() or "session" in str(e).lower():
-            print("Пересоздаю сессию...")
-            login_to_kabanchik()
+        # Пробуем переавторизоваться
+        kabanchik_session = None
 
 def parse_freelancehunt():
     print("Начинаю парсинг Freelancehunt...")
@@ -1733,14 +1716,8 @@ def main():
 
         if KABANCHIK_EMAIL and KABANCHIK_PASSWORD:
             print("✅ KABANCHIK_EMAIL и KABANCHIK_PASSWORD найдены!")
-            
-            if setup_kabanchik_driver():
-                if login_to_kabanchik():
-                    print("✅ Авторизация на Kabanchik выполнена!")
-                else:
-                    print("❌ Не удалось авторизоваться на Kabanchik")
-        else:
-            print("⚠️ Авторизация на Kabanchik НЕ настроена!")
+            # Пробуем авторизоваться при запуске
+            login_to_kabanchik()
 
         ensure_config_exists()
         setup_bot_menu()
@@ -1764,8 +1741,6 @@ def main():
             
     except KeyboardInterrupt:
         print("🛑 Бот остановлен")
-        if kabanchik_driver:
-            kabanchik_driver.quit()
         sys.exit(0)
     except Exception as e:
         print(f"❌ КРИТИЧЕСКАЯ ОШИБКА: {e}")
@@ -1773,8 +1748,6 @@ def main():
             send_telegram_message(f"❌ Бот упал с ошибкой:\n{str(e)[:300]}")
         except:
             pass
-        if kabanchik_driver:
-            kabanchik_driver.quit()
         sys.exit(1)
 
 if __name__ == "__main__":
