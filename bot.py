@@ -877,7 +877,7 @@ def login_to_kabanchik():
         print(f"Ошибка авторизации на Kabanchik: {e}")
         return False
 
-def parse_kabanchik_with_auth():
+def parse_kabanchik():
     """Парсинг Kabanchik с авторизацией"""
     global kabanchik_session, kabanchik_sent_tasks
     
@@ -1184,7 +1184,6 @@ def handle_updates():
                 if "message" in u:
                     message = u["message"]
                     text = message.get("text", "").strip()
-                    chat_id = message["chat"]["id"]
 
                     if waiting_for_template_input:
                         if template_input_type == "price":
@@ -1656,7 +1655,7 @@ def monitor_freelancehunt():
 def monitor_kabanchik():
     while True:
         try:
-            parse_kabanchik_with_auth()
+            parse_kabanchik()
         except Exception as e:
             print(f"DEBUG: monitor_kabanchik error: {e}")
         time.sleep(KABANCHIK_INTERVAL)
