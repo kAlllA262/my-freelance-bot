@@ -32,19 +32,7 @@ template = {
 waiting_for_template_input = False
 template_input_type = None
 
-# Ключевые слова для поиска на Kabanchik
-KABANCHIK_KEYWORDS = [
-    "монтаж видео", "видеомонтаж", "нарезка видео", "склейка видео",
-    "редактирование видео", "обработка видео", "создание видео",
-    "рекламный ролик", "видеореклама", "промо видео",
-    "анимация", "motion design", "2d анимация", "3d анимация",
-    "after effects", "цветокоррекция", "davinci resolve",
-    "озвучка", "закадровый голос", "диктор",
-    "ai видео", "генерация видео", "нейросеть",
-    "youtube монтаж", "reels", "shorts"
-]
-
-# URL для парсинга Kabanchik (ИСПРАВЛЕНЫ)
+# URL для парсинга Kabanchik
 KABANCHIK_BASE_URL = "https://kabanchik.ua"
 KABANCHIK_LOGIN_URL = "https://kabanchik.ua/ua/login"
 KABANCHIK_CATEGORIES = {
@@ -82,28 +70,7 @@ WEBLANCER_INTERVAL = 60
 
 WEBLANCER_URL = "https://www.weblancer.net/projects/"
 WEBLANCER_KEYWORDS = [
-    "монтаж видеороликов", "монтаж видео", "видеомонтаж", "нарезка видео",
-    "склейка видео", "редактирование видео", "видео на заказ", "обработка видео",
-    "создание видео", "сделать видео", "запись видео", "видеосъемка",
-    "видео под ключ", "создание анимаций", "анимация", "motion",
-    "motion design", "2d анимация", "3d анимация", "после эффектов",
-    "after effects", "анимированный ролик", "инфографика", "визуализация",
-    "создание рекламных роликов", "рекламный ролик", "реклама видео",
-    "видеореклама", "промо", "промо видео", "проморолик",
-    "реклама для соцсетей", "рекламное видео", "динамичный ролик",
-    "reels", "shorts", "instagram reels", "youtube shorts",
-    "тикток", "tiktok", "вертикальное видео", "short video",
-    "видео для инстаграм", "видео для тикток", "adobe premiere pro",
-    "premiere pro", "capcut", "davinci resolve", "da vinci",
-    "resolve", "color grading", "цветокоррекция", "цветокор",
-    "post production", "постпродакшн", "визуальные эффекты", "vfx",
-    "special effects", "закадровый голос", "озвучка", "звук",
-    "музыка для видео", "добавление музыки", "наложение музыки",
-    "саунд дизайн", "звукорежиссура", "clean audio", "очистка звука",
-    "обработка звука", "контент для youtube", "youtube видео",
-    "ютуб", "youtube монтаж", "vlog", "влог", "короткий ролик",
-    "видео для бизнеса", "корпоративное видео", "интро видео",
-    "аутро видео", "video editing", "video production", "video creator",
+    "монтаж видеороликов", "монтаж видео", "видеомонтаж"
 ]
 
 CONFIG_FILE = "config.json"
@@ -248,15 +215,10 @@ def get_default_config():
                 "редактирование видео", "рекламный ролик", "видеореклама",
                 "промо", "динамичный ролик", "реклама для соцсетей",
                 "рекламное видео", "youtube видео", "ютуб",
-                "youtube монтаж", "ютуб монтаж", "видео для youtube",
-                "youtube шортс", "ai видео", "генерация видео",
-                "нейросеть", "sora", "midjourney", "генерация фото",
-                "ai фото", "ai реклама", "реклама с ии", "ai фильм",
-                "короткометражка", "ai кино", "davinci resolve",
-                "цветокоррекция", "color grading", "постпродакшн",
-                "color correction", "визуальные эффекты", "vfx",
-                "motion", "анимация", "динамичный", "монтаж reels",
-                "обработка видео", "ретушь"
+                "youtube монтаж", "ai видео", "генерация видео",
+                "нейросеть", "davinci resolve", "цветокоррекция",
+                "color grading", "визуальные эффекты", "vfx",
+                "motion", "анимация", "обработка видео", "ретушь"
             ]
         },
         "kabanchik": {
@@ -321,13 +283,10 @@ def send_telegram_message(text, reply_markup=None):
     return result
 
 def generate_ai_bid(project_title, project_description, project_category):
-    """Генерирует уникальный отклик для заказа"""
     if not GEMINI_API_KEY:
         return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
 
-Я специализируюсь в области {project_category} и имею успешный опыт в подобных проектах.
-
-Могу предложить качественное выполнение работы с индивидуальным подходом к вашей задаче.
+Я специализируюсь в области {project_category} и имею успешный опыт.
 
 Буду рад обсудить детали, стоимость и сроки. Жду вашего ответа!"""
     
@@ -343,17 +302,15 @@ def generate_ai_bid(project_title, project_description, project_category):
 
 Твой ответ должен:
 1. Быть уникальным для ЭТОГО КОНКРЕТНОГО заказа
-2. Показать понимание задачи (упомяни детали из описания)
+2. Показать понимание задачи
 3. Предложить конкретные идеи решения
 4. Быть уверенным и профессиональным
-5. НЕ УПОМИНАТЬ цену и сроки — ты ещё не знаешь всех нюансов проекта
-6. Заканчиваться призывом обсудить детали
+5. НЕ УПОМИНАТЬ цену и сроки
 
 Стиль: {template['style']}
-
 Дополнительный текст: {template['extra_text']}
 
-Ответ: 3-5 предложений на русском языке, кратко и по делу.
+Ответ: 3-5 предложений на русском языке.
 """
 
         payload = {
@@ -372,9 +329,7 @@ def generate_ai_bid(project_title, project_description, project_category):
         
         return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
 
-Я специализируюсь в области {project_category} и имею успешный опыт в подобных проектах.
-
-Могу предложить качественное выполнение работы с индивидуальным подходом.
+Я специализируюсь в области {project_category} и имею успешный опыт.
 
 Буду рад обсудить детали, стоимость и сроки. Жду вашего ответа!"""
             
@@ -387,9 +342,7 @@ def generate_ai_bid(project_title, project_description, project_category):
 Готов обсудить детали и предложить лучшее решение. Жду вашего ответа!"""
 
 def send_telegram_message_with_buttons(text, button_url, project_id):
-    """Отправляет сообщение с кнопками: Открыть и AI ответ"""
     if not BOT_TOKEN or not CHAT_ID:
-        print("BOT_TOKEN или CHAT_ID не заданы!")
         return None
 
     short_id = get_short_id(project_id)
@@ -413,7 +366,6 @@ def send_telegram_message_with_buttons(text, button_url, project_id):
     result = telegram_api("sendMessage", payload)
     if result is None:
         log_error("telegram", "не удалось отправить кнопку")
-        print("Ошибка отправки!")
     else:
         message_id = result.get('result', {}).get('message_id', 'unknown')
         print(f"Отправлено! message_id: {message_id}")
@@ -421,14 +373,13 @@ def send_telegram_message_with_buttons(text, button_url, project_id):
     return result
 
 def send_bid(project_id, price, deadline, comment):
-    """Отправляет отклик на заказ через API Freelancehunt"""
     if not FH_API_TOKEN:
-        return {"status": "error", "message": "❌ API-ключ не настроен! Добавь FH_API_TOKEN на Render"}
+        return {"status": "error", "message": "❌ API-ключ не настроен!"}
     
     try:
         match = re.search(r'/(\d+)/?', project_id)
         if not match:
-            return {"status": "error", "message": f"❌ Не удалось определить ID проекта из: {project_id}"}
+            return {"status": "error", "message": f"❌ Не удалось определить ID проекта"}
         
         project_id_clean = match.group(1)
         
@@ -539,10 +490,6 @@ def create_keywords_keyboard():
                 {"text": "YouTube", "callback_data": "kw_youtube"}
             ],
             [
-                {"text": "AI реклама", "callback_data": "kw_ai_ads"},
-                {"text": "AI фильм", "callback_data": "kw_ai_film"}
-            ],
-            [
                 {"text": "DaVinci", "callback_data": "kw_davinci"},
                 {"text": "Цветокор", "callback_data": "kw_color"}
             ],
@@ -609,9 +556,6 @@ def extract_budget_and_currency(text):
             return None, ""
     return None, ""
 
-def translate_to_russian(text):
-    return text
-
 def is_russian_or_ukrainian(text):
     if not text:
         return True
@@ -624,8 +568,7 @@ def maybe_translate(text):
         return text, False
     if is_russian_or_ukrainian(text):
         return text, False
-    translated = translate_to_russian(text)
-    return translated, True
+    return text, False
 
 def matches_keywords(text, keywords):
     if not text:
@@ -636,14 +579,14 @@ def matches_keywords(text, keywords):
 def detect_fh_category(text):
     text_low = text.lower()
     category_map = {
-        "AI создание видео": ["ai", "нейросеть", "генерация видео", "создать видео ии", "sora", "midjourney", "искусственный интеллект"],
+        "AI создание видео": ["ai", "нейросеть", "генерация видео", "sora", "midjourney"],
         "Анимация": ["анимация", "motion", "2d", "3d", "after effects"],
-        "Аудио/видео монтаж": ["монтаж", "видеомонтаж", "нарезка", "склейка", "редактирование видео"],
-        "Видео реклама": ["рекламный ролик", "видеореклама", "промо", "реклама для соцсетей", "рекламное видео"],
-        "Обработка аудио": ["аудио", "звук", "обработка звука", "звукорежиссер", "очистка звука", "запись голоса"],
-        "Обработка видео": ["обработка видео", "цветокор", "post production", "color correction", "color grading", "davinci resolve"],
-        "Обработка фото": ["обработка фото", "ретушь", "photoshop", "ai фото", "генерация фото"],
-        "Услуги диктора": ["диктор", "озвучка", "голос", "voice over", "voiceover", "закадровый голос"]
+        "Аудио/видео монтаж": ["монтаж", "видеомонтаж", "нарезка", "склейка", "редактирование"],
+        "Видео реклама": ["рекламный ролик", "видеореклама", "промо", "рекламное видео"],
+        "Обработка аудио": ["аудио", "звук", "обработка звука", "озвучка"],
+        "Обработка видео": ["обработка видео", "цветокор", "color grading", "davinci resolve"],
+        "Обработка фото": ["обработка фото", "ретушь", "photoshop"],
+        "Услуги диктора": ["диктор", "озвучка", "голос", "voice over"]
     }
 
     for category, words in category_map.items():
@@ -842,7 +785,6 @@ def setup_bot_menu():
     })
 
 def login_to_kabanchik():
-    """Авторизация на Kabanchik"""
     global kabanchik_session
     
     try:
@@ -857,17 +799,14 @@ def login_to_kabanchik():
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         })
         
-        # Получаем страницу входа
         response = kabanchik_session.get(KABANCHIK_LOGIN_URL, timeout=30)
         soup = BeautifulSoup(response.text, "html.parser")
         
-        # Ищем CSRF токен
         csrf_token = None
         token_input = soup.find("input", {"name": "_token"})
         if token_input:
             csrf_token = token_input.get("value")
         
-        # Данные для входа
         login_data = {
             "email": KABANCHIK_EMAIL,
             "password": KABANCHIK_PASSWORD,
@@ -875,7 +814,6 @@ def login_to_kabanchik():
             "remember": "1"
         }
         
-        # Отправляем запрос на вход
         response = kabanchik_session.post(
             KABANCHIK_LOGIN_URL,
             data=login_data,
@@ -883,7 +821,6 @@ def login_to_kabanchik():
             allow_redirects=True
         )
         
-        # Проверяем успешность входа
         if "вход" in response.text.lower() or "login" in response.url.lower():
             print("❌ Вход на Kabanchik не удался")
             return False
@@ -896,7 +833,6 @@ def login_to_kabanchik():
         return False
 
 def parse_kabanchik():
-    """Парсинг Kabanchik по категориям"""
     global kabanchik_session, kabanchik_sent_tasks
     
     print("🔍 Начинаю парсинг Kabanchik...")
@@ -905,7 +841,6 @@ def parse_kabanchik():
     min_budget = config.get("kabanchik", {}).get("min_budget", 0)
     
     try:
-        # Проверяем авторизацию
         if not kabanchik_session:
             if not login_to_kabanchik():
                 print("❌ Не удалось авторизоваться на Kabanchik")
@@ -913,9 +848,7 @@ def parse_kabanchik():
         
         total = 0
         
-        # Проходим по каждой категории
         for category_key, category_slug in KABANCHIK_CATEGORIES.items():
-            # Проверяем, включена ли категория
             category_name = {
                 "ai_services": "AI услуги",
                 "design": "Дизайн",
@@ -939,15 +872,11 @@ def parse_kabanchik():
                 
                 soup = BeautifulSoup(response.text, "html.parser")
                 
-                # Ищем проекты (пробуем разные классы)
                 project_items = soup.find_all("div", class_="project-item")
-                
                 if not project_items:
                     project_items = soup.find_all("div", class_="task-item")
-                
                 if not project_items:
                     project_items = soup.find_all("div", class_="order-item")
-                
                 if not project_items:
                     project_items = soup.find_all("div", class_="item")
                 
@@ -955,25 +884,21 @@ def parse_kabanchik():
                 
                 for item in project_items:
                     try:
-                        # Название
                         title_elem = item.find("a", class_="title") or item.find("h3") or item.find("h2")
                         if not title_elem:
                             continue
                         
                         title = title_elem.get_text(strip=True)
                         
-                        # Ссылка
                         link_elem = title_elem if title_elem.name == "a" else title_elem.find("a")
                         if link_elem and link_elem.get("href"):
                             link = "https://kabanchik.ua" + link_elem.get("href")
                         else:
                             continue
                         
-                        # Описание
                         desc_elem = item.find("div", class_="description") or item.find("p")
                         description = desc_elem.get_text(strip=True) if desc_elem else "Описание на сайте"
                         
-                        # Бюджет
                         budget_elem = item.find("div", class_="budget") or item.find("span", class_="price")
                         budget_text = budget_elem.get_text(strip=True) if budget_elem else ""
                         
@@ -982,7 +907,6 @@ def parse_kabanchik():
                         if project_id in kabanchik_sent_tasks:
                             continue
                         
-                        # Проверяем бюджет
                         if min_budget:
                             budget, _ = extract_budget_and_currency(budget_text)
                             if budget and budget < min_budget:
@@ -1175,13 +1099,6 @@ def parse_weblancer():
                         stats["weblancer"] += 1
                         count_in_keyword += 1
                         total_in_keyword += 1
-                        
-                        pending_orders[project_id] = {
-                            "title": title,
-                            "description": description,
-                            "category": "Видеомонтаж / AI-видео",
-                            "link": link
-                        }
                         
                         message_text = format_weblancer_message(
                             title, description, budget_text, link
