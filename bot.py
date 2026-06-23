@@ -9,13 +9,23 @@ import hashlib
 from bs4 import BeautifulSoup
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 PORT = int(os.environ.get("PORT", 10000))
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-FH_API_TOKEN = os.environ.get("FH_API_TOKEN")  # Убедись, что ключ правильный!
+FH_API_TOKEN = os.environ.get("FH_API_TOKEN")
+
+# Данные для авторизации на Kabanchik
+KABANCHIK_EMAIL = os.environ.get("KABANCHIK_EMAIL")
+KABANCHIK_PASSWORD = os.environ.get("KABANCHIK_PASSWORD")
 
 # Шаблон отклика
 template = {
@@ -27,6 +37,23 @@ template = {
 
 waiting_for_template_input = False
 template_input_type = None
+
+# Ключевые слова для поиска на Kabanchik
+KABANCHIK_KEYWORDS = [
+    "монтаж видео", "видеомонтаж", "нарезка видео", "склейка видео",
+    "редактирование видео", "обработка видео", "создание видео",
+    "рекламный ролик", "видеореклама", "промо видео",
+    "анимация", "motion design", "2d анимация", "3d анимация",
+    "after effects", "цветокоррекция", "davinci resolve",
+    "озвучка", "закадровый голос", "диктор",
+    "ai видео", "генерация видео", "нейросеть",
+    "youtube монтаж", "reels", "shorts"
+]
+
+# URL для парсинга
+KABANCHIK_BASE_URL = "https://kabanchik.ua"
+KABANCHIK_PROJECTS_URL = "https://kabanchik.ua/projects"
+KABANCHIK_LOGIN_URL = "https://kabanchik.ua/login"
 
 FH_CATEGORIES = {
     "ai_video": "https://freelancehunt.com/projects.rss?skills%5B%5D=192",
@@ -51,15 +78,10 @@ FH_CATEGORY_NAMES = {
 }
 
 FH_INTERVAL = 60
-
-KABANCHIK_URLS = [
-    "https://kabanchik.ua/ua/category/ai-poslugi",
-]
-KABANCHIK_INTERVAL = 30
-
-WEBLANCER_URL = "https://www.weblancer.net/projects/"
+KABANCHIK_INTERVAL = 60
 WEBLANCER_INTERVAL = 60
 
+WEBLANCER_URL = "https://www.weblancer.net/projects/"
 WEBLANCER_KEYWORDS = [
     "монтаж видеороликов", "монтаж видео", "видеомонтаж", "нарезка видео",
     "склейка видео", "редактирование видео", "видео на заказ", "обработка видео",
@@ -93,6 +115,9 @@ weblancer_sent_projects = set()
 pending_orders = {}
 ai_responses_cache = {}
 
+# Глобальная сессия для Kabanchik
+kabanchik_driver = None
+
 stats = {
     "orders_found": 0,
     "orders_sent": 0,
@@ -123,7 +148,7 @@ check_stats = {
         "last_check": None,
         "last_count": 0,
         "total_checks": 0,
-        "categories": {}
+        "keywords": {}
     },
     "weblancer": {
         "last_check": None,
@@ -135,7 +160,6 @@ check_stats = {
 
 def get_short_id(project_id):
     return hashlib.md5(project_id.encode()).hexdigest()[:8]
-
 
 def update_check_stats(platform, category, count):
     kiev_time = time.localtime(time.time() + 10800)
@@ -152,7 +176,7 @@ def update_check_stats(platform, category, count):
         check_stats["kabanchik"]["total_checks"] += 1
         check_stats["kabanchik"]["last_count"] += count
         if category:
-            check_stats["kabanchik"]["categories"][category] = check_stats["kabanchik"]["categories"].get(category, 0) + count
+            check_stats["kabanchik"]["keywords"][category] = check_stats["kabanchik"]["keywords"].get(category, 0) + count
     elif platform == "weblancer":
         check_stats["weblancer"]["last_check"] = time_str
         check_stats["weblancer"]["total_checks"] += 1
@@ -173,7 +197,6 @@ def log_error(error_type, message):
     if len(errors["last_errors"]) > 10:
         errors["last_errors"] = errors["last_errors"][-10:]
 
-
 class HealthCheckServer(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -184,13 +207,11 @@ class HealthCheckServer(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
 
-
 def run_web_server():
     try:
         HTTPServer(("0.0.0.0", PORT), HealthCheckServer).serve_forever()
     except Exception as e:
-        print(f"DEBUG: Web server error: {e}")
-
+        print(f"Web server error: {e}")
 
 def telegram_api(method, payload):
     if not BOT_TOKEN:
@@ -202,13 +223,12 @@ def telegram_api(method, payload):
             timeout=20
         )
         if r.status_code != 200:
-            print(f"❌ Telegram API error {method}: {r.status_code} {r.text[:200]}")
+            print(f"Telegram API error {method}: {r.status_code} {r.text[:200]}")
             return None
         return r.json()
     except Exception as e:
-        print(f"❌ Telegram API exception {method}: {e}")
+        print(f"Telegram API exception {method}: {e}")
         return None
-
 
 def get_default_config():
     return {
@@ -241,13 +261,10 @@ def get_default_config():
             ]
         },
         "kabanchik": {
-            "categories": {
-                "AI услуги": True,
-                "Фото и видео услуги": True
-            }
+            "keywords": KABANCHIK_KEYWORDS,
+            "min_budget": 0
         }
     }
-
 
 def load_config():
     try:
@@ -255,9 +272,8 @@ def load_config():
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
     except Exception as e:
-        print(f"DEBUG: load_config error: {e}")
+        print(f"load_config error: {e}")
     return None
-
 
 def save_config(config):
     try:
@@ -265,9 +281,8 @@ def save_config(config):
             json.dump(config, f, ensure_ascii=False, indent=2)
         return True
     except Exception as e:
-        print(f"DEBUG: save_config error: {e}")
+        print(f"save_config error: {e}")
         return False
-
 
 def ensure_config_exists():
     c = load_config()
@@ -276,16 +291,14 @@ def ensure_config_exists():
         save_config(c)
     return c
 
-
 def clean_html_text(text):
     if not text:
         return ""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-
 def send_telegram_message(text, reply_markup=None):
     if not BOT_TOKEN or not CHAT_ID:
-        print("❌ BOT_TOKEN или CHAT_ID не заданы!")
+        print("BOT_TOKEN или CHAT_ID не заданы!")
         return None
 
     payload = {
@@ -301,9 +314,8 @@ def send_telegram_message(text, reply_markup=None):
     if result is None:
         log_error("telegram", "не удалось отправить сообщение")
     else:
-        print(f"✅ Сообщение отправлено! ID: {result.get('result', {}).get('message_id', 'unknown')}")
+        print(f"Сообщение отправлено! ID: {result.get('result', {}).get('message_id', 'unknown')}")
     return result
-
 
 def send_bid(project_id, price, deadline, comment):
     """Отправляет отклик на заказ через API Freelancehunt"""
@@ -311,16 +323,13 @@ def send_bid(project_id, price, deadline, comment):
         return {"status": "error", "message": "❌ API-ключ не настроен! Добавь FH_API_TOKEN на Render"}
     
     try:
-        # Извлекаем ID проекта из ссылки
-        import re
         match = re.search(r'/(\d+)/?', project_id)
         if not match:
             return {"status": "error", "message": f"❌ Не удалось определить ID проекта из: {project_id}"}
         
         project_id_clean = match.group(1)
         
-        print(f"📤 Отправка отклика на проект {project_id_clean} (Freelancehunt)")
-        print(f"💰 Цена: {price} UAH, 📅 Срок: {deadline} дня")
+        print(f"Отправка отклика на проект {project_id_clean} (Freelancehunt)")
         
         url = "https://api.freelancehunt.com/v2/bids"
         
@@ -337,12 +346,7 @@ def send_bid(project_id, price, deadline, comment):
             "comment": comment
         }
         
-        print(f"📦 Данные: {json.dumps(data, ensure_ascii=False)}")
-        
         response = requests.post(url, json=data, headers=headers, timeout=30)
-        
-        print(f"   Статус: {response.status_code}")
-        print(f"   Ответ: {response.text[:500]}")
         
         if response.status_code == 201 or response.status_code == 200:
             return {"status": "success", "data": response.json()}
@@ -353,9 +357,8 @@ def send_bid(project_id, price, deadline, comment):
         log_error("freelancehunt", f"Отправка отклика: {str(e)[:30]}")
         return {"status": "error", "message": str(e)}
 
-
 def generate_ai_bid(project_title, project_description, project_category):
-    """Генерирует уникальный отклик для заказа (без цены и сроков)"""
+    """Генерирует уникальный отклик для заказа"""
     if not GEMINI_API_KEY:
         return f"""Здравствуйте! Меня заинтересовал ваш заказ «{project_title}».
 
@@ -420,11 +423,10 @@ def generate_ai_bid(project_title, project_description, project_category):
 
 Готов обсудить детали и предложить лучшее решение. Жду вашего ответа!"""
 
-
 def send_telegram_message_with_buttons(text, button_url, project_id):
-    """Отправляет сообщение с кнопками: Открыть и AI ответ"""
+    """Отправляет сообщение с кнопками"""
     if not BOT_TOKEN or not CHAT_ID:
-        print("❌ BOT_TOKEN или CHAT_ID не заданы!")
+        print("BOT_TOKEN или CHAT_ID не заданы!")
         return None
 
     short_id = get_short_id(project_id)
@@ -448,13 +450,12 @@ def send_telegram_message_with_buttons(text, button_url, project_id):
     result = telegram_api("sendMessage", payload)
     if result is None:
         log_error("telegram", "не удалось отправить кнопку")
-        print(f"   ❌ Ошибка отправки!")
+        print("Ошибка отправки!")
     else:
         message_id = result.get('result', {}).get('message_id', 'unknown')
-        print(f"   ✅ Отправлено! message_id: {message_id}")
+        print(f"Отправлено! message_id: {message_id}")
         stats["orders_sent"] += 1
     return result
-
 
 def create_main_keyboard():
     return {
@@ -469,7 +470,6 @@ def create_main_keyboard():
             ]
         ]
     }
-
 
 def create_help_keyboard():
     return {
@@ -488,7 +488,6 @@ def create_help_keyboard():
         ]
     }
 
-
 def create_settings_keyboard():
     return {
         "inline_keyboard": [
@@ -498,7 +497,7 @@ def create_settings_keyboard():
             ],
             [
                 {"text": "📁 Freelancehunt", "callback_data": "show_fh_categories"},
-                {"text": "📁 Kabanchik", "callback_data": "show_kb_categories"}
+                {"text": "📁 Kabanchik", "callback_data": "show_kb_keywords"}
             ],
             [
                 {"text": "🔄 Сброс", "callback_data": "reset_config"},
@@ -506,7 +505,6 @@ def create_settings_keyboard():
             ]
         ]
     }
-
 
 def create_budget_keyboard():
     return {
@@ -525,7 +523,6 @@ def create_budget_keyboard():
             ]
         ]
     }
-
 
 def create_keywords_keyboard():
     return {
@@ -552,6 +549,23 @@ def create_keywords_keyboard():
         ]
     }
 
+def create_template_keyboard():
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "💰 Цена", "callback_data": "template_price"},
+                {"text": "📅 Срок", "callback_data": "template_deadline"}
+            ],
+            [
+                {"text": "🎯 Стиль", "callback_data": "template_style"},
+                {"text": "📝 Доп. текст", "callback_data": "template_text"}
+            ],
+            [
+                {"text": "📋 Показать шаблон", "callback_data": "template_show"},
+                {"text": "⬅️ Назад", "callback_data": "show_main_menu"}
+            ]
+        ]
+    }
 
 def get_settings_text(config):
     text = "⚙️ <b>НАСТРОЙКИ БОТА</b>\n\n📁 <b>FREELANCEHUNT КАТЕГОРИИ:</b>\n"
@@ -560,13 +574,10 @@ def get_settings_text(config):
 
     text += f"\n💰 <b>МИНИМАЛЬНЫЙ БЮДЖЕТ:</b> ${config['freelancehunt']['min_budget']}\n\n🔍 <b>КЛЮЧЕВЫЕ СЛОВА:</b>\n"
     text += ", ".join(config["freelancehunt"]["keywords"])
-    text += "\n\n📁 <b>KABANCHIK КАТЕГОРИИ:</b>\n"
-
-    for cat, enabled in config["kabanchik"]["categories"].items():
-        text += f"{'✅' if enabled else '❌'} {cat}\n"
+    text += "\n\n📁 <b>KABANCHIK КЛЮЧЕВЫЕ СЛОВА:</b>\n"
+    text += ", ".join(config.get("kabanchik", {}).get("keywords", KABANCHIK_KEYWORDS))
 
     return text
-
 
 def extract_budget_and_currency(text):
     if not text:
@@ -594,10 +605,8 @@ def extract_budget_and_currency(text):
             return None, ""
     return None, ""
 
-
 def translate_to_russian(text):
     return text
-
 
 def is_russian_or_ukrainian(text):
     if not text:
@@ -605,7 +614,6 @@ def is_russian_or_ukrainian(text):
     low = text.lower()
     ru_ua_chars = "абвгдеёжзиіїєґклмнопрстуфхцчшщьыэюя"
     return any(ch in low for ch in ru_ua_chars)
-
 
 def maybe_translate(text):
     if not text:
@@ -615,25 +623,23 @@ def maybe_translate(text):
     translated = translate_to_russian(text)
     return translated, True
 
-
 def matches_keywords(text, keywords):
     if not text:
         return False
     low = text.lower()
     return any(kw.lower() in low for kw in keywords)
 
-
 def detect_fh_category(text):
     text_low = text.lower()
     category_map = {
-        "AI создание видео": ["ai", "нейросеть", "генерация видео", "создать видео ии", "sora", "midjourney", "искусственный интеллект", "генерация", "роблокс", "roblox", "аватар"],
-        "Анимация": ["анимация", "motion", "2d", "3d", "after effects", "moho", "анимация персонажа"],
+        "AI создание видео": ["ai", "нейросеть", "генерация видео", "создать видео ии", "sora", "midjourney", "искусственный интеллект"],
+        "Анимация": ["анимация", "motion", "2d", "3d", "after effects"],
         "Аудио/видео монтаж": ["монтаж", "видеомонтаж", "нарезка", "склейка", "редактирование видео"],
-        "Видео реклама": ["рекламный ролик", "видеореклама", "промо", "реклама для соцсетей", "рекламное видео", "динамичный ролик", "promo", "reels", "ролик"],
-        "Обработка аудио": ["аудио", "звук", "обработка звука", "звукорежиссер", "очистка звука", "запись голоса", "музыка", "озвучка", "диктор", "голос"],
-        "Обработка видео": ["обработка видео", "цветокор", "post production", "color correction", "color grading", "davinci resolve", "визуальные эффекты", "vfx"],
+        "Видео реклама": ["рекламный ролик", "видеореклама", "промо", "реклама для соцсетей", "рекламное видео"],
+        "Обработка аудио": ["аудио", "звук", "обработка звука", "звукорежиссер", "очистка звука", "запись голоса"],
+        "Обработка видео": ["обработка видео", "цветокор", "post production", "color correction", "color grading", "davinci resolve"],
         "Обработка фото": ["обработка фото", "ретушь", "photoshop", "ai фото", "генерация фото"],
-        "Услуги диктора": ["диктор", "озвучка", "голос", "voice over", "voiceover", "закадровый голос", "профессиональный голос", "озвучивание"]
+        "Услуги диктора": ["диктор", "озвучка", "голос", "voice over", "voiceover", "закадровый голос"]
     }
 
     for category, words in category_map.items():
@@ -642,12 +648,10 @@ def detect_fh_category(text):
 
     return "Без категории"
 
-
 def format_quote(text):
     lines = text.split('\n')
     quoted_lines = [f"> {line}" for line in lines if line.strip()]
     return '\n'.join(quoted_lines) if quoted_lines else "> (описание отсутствует)"
-
 
 def format_freelancehunt_message(title, summary, category, budget=None, currency=""):
     budget_text = "Не указана"
@@ -677,8 +681,7 @@ def format_freelancehunt_message(title, summary, category, budget=None, currency
         f"{summary_line}"
     )
 
-
-def format_kabanchik_message(title, category, description="Описание на сайте Kabanchik", budget=None, currency=""):
+def format_kabanchik_message(title, description, budget=None, currency=""):
     budget_text = "Не указана"
     if budget is not None:
         budget_text = f"{budget} {currency}".strip()
@@ -690,9 +693,7 @@ def format_kabanchik_message(title, category, description="Описание на
     if title_translated:
         title_line += " <i>(переведен)</i>"
 
-    category_formatted = f"<code>{clean_html_text(category)}</code>"
-
-    description_quoted = format_quote(clean_html_text(description))
+    description_quoted = format_quote(clean_html_text(description[:900]))
     if description_translated:
         description_quoted += "\n\n<i>(переведен)</i>"
 
@@ -701,11 +702,9 @@ def format_kabanchik_message(title, category, description="Описание на
     return (
         f"🟢 <b>Kabanchik</b>\n\n"
         f"{title_line}\n\n"
-        f"🏷 <b>Категория:</b> {category_formatted}\n"
         f"💰 <b>Бюджет:</b> {clean_html_text(budget_text)}\n\n"
         f"{description_line}"
     )
-
 
 def format_weblancer_message(title, description, budget_text, link):
     title, title_translated = maybe_translate(title)
@@ -729,13 +728,11 @@ def format_weblancer_message(title, description, budget_text, link):
         f"{description_line}"
     )
 
-
 def get_uptime():
     diff = time.time() - stats["start_time"]
     hours = int(diff // 3600)
     minutes = int((diff % 3600) // 60)
     return f"{hours} ч {minutes} мин"
-
 
 def get_status_message():
     total_errors = sum([errors["freelancehunt"], errors["kabanchik"], errors["weblancer"], errors["gemini"], errors["telegram"]])
@@ -782,11 +779,11 @@ def get_status_message():
     if kb["last_check"]:
         checks_lines.append(f"> <b>Kabanchik:</b> {kb['last_check']}")
         checks_lines.append(f"> (проверок: {kb['total_checks']}, найдено: {kb['last_count']} заказов)")
-        if kb["categories"]:
-            active_cats = {k: v for k, v in kb["categories"].items() if v > 0}
-            if active_cats:
-                for cat, count in active_cats.items():
-                    checks_lines.append(f">   - {cat}: {count} заказов")
+        if kb["keywords"]:
+            active_kws = {k: v for k, v in kb["keywords"].items() if v > 0}
+            if active_kws:
+                for kw, count in active_kws.items():
+                    checks_lines.append(f">   - Поиск '{kw}': {count} заказов")
         checks_lines.append("")
     else:
         checks_lines.append("> Kabanchik: ожидание первой проверки...")
@@ -827,7 +824,6 @@ def get_status_message():
         f"🔄 <b>Запущен (Киев):</b> {time.strftime('%d.%m.%Y %H:%M', kiev_time)}"
     )
 
-
 def setup_bot_menu():
     telegram_api("setMyCommands", {
         "commands": [
@@ -838,9 +834,189 @@ def setup_bot_menu():
         ]
     })
 
+def setup_kabanchik_driver():
+    """Настройка Selenium WebDriver для Kabanchik"""
+    global kabanchik_driver
+    
+    try:
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        
+        # Путь к Chromium на Render
+        chrome_options.binary_location = "/usr/bin/chromium-browser"
+        
+        kabanchik_driver = webdriver.Chrome(options=chrome_options)
+        print("WebDriver для Kabanchik создан")
+        return True
+    except Exception as e:
+        print(f"Ошибка создания WebDriver: {e}")
+        return False
+
+def login_to_kabanchik():
+    """Авторизация на Kabanchik"""
+    global kabanchik_driver
+    
+    try:
+        if not kabanchik_driver:
+            if not setup_kabanchik_driver():
+                return False
+        
+        if not KABANCHIK_EMAIL or not KABANCHIK_PASSWORD:
+            print("Не заданы KABANCHIK_EMAIL или KABANCHIK_PASSWORD")
+            return False
+        
+        print("Выполняю вход на Kabanchik...")
+        kabanchik_driver.get(KABANCHIK_LOGIN_URL)
+        
+        time.sleep(3)
+        
+        try:
+            email_input = WebDriverWait(kabanchik_driver, 10).until(
+                EC.presence_of_element_located((By.NAME, "email"))
+            )
+            email_input.send_keys(KABANCHIK_EMAIL)
+            
+            password_input = kabanchik_driver.find_element(By.NAME, "password")
+            password_input.send_keys(KABANCHIK_PASSWORD)
+            
+            login_button = kabanchik_driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
+            login_button.click()
+            
+            time.sleep(5)
+            
+            if "login" in kabanchik_driver.current_url.lower():
+                print("Вход на Kabanchik не удался")
+                return False
+            
+            print("Успешный вход на Kabanchik!")
+            return True
+            
+        except Exception as e:
+            print(f"Ошибка при входе на Kabanchik: {e}")
+            return False
+            
+    except Exception as e:
+        print(f"Ошибка авторизации: {e}")
+        return False
+
+def parse_kabanchik_with_auth():
+    """Парсинг Kabanchik с авторизацией и поиском по ключевым словам"""
+    global kabanchik_driver, kabanchik_sent_tasks
+    
+    print("Начинаю парсинг Kabanchik с авторизацией...")
+    config = ensure_config_exists()
+    enabled_keywords = config.get("kabanchik", {}).get("keywords", KABANCHIK_KEYWORDS)
+    min_budget = config.get("kabanchik", {}).get("min_budget", 0)
+    
+    try:
+        if not kabanchik_driver:
+            if not login_to_kabanchik():
+                print("Не удалось авторизоваться на Kabanchik")
+                return
+        
+        total_in_keyword = 0
+        
+        for keyword in enabled_keywords[:10]:
+            try:
+                print(f"Поиск по ключевому слову: {keyword}")
+                
+                search_url = f"{KABANCHIK_PROJECTS_URL}?q={keyword.replace(' ', '+')}"
+                kabanchik_driver.get(search_url)
+                
+                time.sleep(3)
+                
+                html = kabanchik_driver.page_source
+                soup = BeautifulSoup(html, "html.parser")
+                
+                count_in_keyword = 0
+                
+                project_items = soup.find_all("div", class_="projects-item")
+                
+                if not project_items:
+                    project_items = soup.find_all("div", class_="project-item")
+                
+                if not project_items:
+                    project_items = soup.find_all("div", class_="list-item")
+                
+                for item in project_items:
+                    try:
+                        title_elem = item.find("a", class_="title") or item.find("h3") or item.find("h2")
+                        if not title_elem:
+                            continue
+                        
+                        title = title_elem.get_text(strip=True)
+                        
+                        link_elem = title_elem if title_elem.name == "a" else title_elem.find("a")
+                        if link_elem and link_elem.get("href"):
+                            link = KABANCHIK_BASE_URL + link_elem.get("href")
+                        else:
+                            continue
+                        
+                        desc_elem = item.find("div", class_="description") or item.find("p")
+                        description = desc_elem.get_text(strip=True) if desc_elem else "Описание на сайте Kabanchik"
+                        
+                        budget_elem = item.find("div", class_="budget") or item.find("span", class_="price")
+                        budget_text = budget_elem.get_text(strip=True) if budget_elem else ""
+                        
+                        project_id = link or title
+                        
+                        if project_id in kabanchik_sent_tasks:
+                            continue
+                        
+                        if min_budget:
+                            budget, _ = extract_budget_and_currency(budget_text)
+                            if budget and budget < min_budget:
+                                continue
+                        
+                        kabanchik_sent_tasks.add(project_id)
+                        stats["orders_found"] += 1
+                        stats["kabanchik"] += 1
+                        count_in_keyword += 1
+                        total_in_keyword += 1
+                        
+                        message_text = format_kabanchik_message(
+                            title, description, None, ""
+                        )
+                        
+                        keyboard = {
+                            "inline_keyboard": [
+                                [
+                                    {"text": "🔗 Открыть на Kabanchik", "url": link}
+                                ]
+                            ]
+                        }
+                        
+                        send_telegram_message(message_text, keyboard)
+                        print(f"Найден заказ: {title[:50]}...")
+                        
+                    except Exception as e:
+                        print(f"Ошибка при обработке проекта: {e}")
+                        continue
+                
+                update_check_stats("kabanchik", keyword, count_in_keyword)
+                print(f"По ключевому слову '{keyword}' найдено: {count_in_keyword} заказов")
+                        
+            except Exception as e:
+                print(f"Ошибка поиска по ключевому слову {keyword}: {e}")
+                continue
+        
+        check_stats["kabanchik"]["last_count"] = total_in_keyword
+        print(f"Kabanchik: всего найдено {total_in_keyword} заказов")
+                
+    except Exception as e:
+        log_error("kabanchik", str(e)[:30])
+        print(f"Ошибка парсинга Kabanchik: {e}")
+        if "no such window" in str(e).lower() or "session" in str(e).lower():
+            print("Пересоздаю сессию...")
+            login_to_kabanchik()
 
 def parse_freelancehunt():
-    print(f"🔍 Начинаю парсинг Freelancehunt...")
+    print("Начинаю парсинг Freelancehunt...")
     config = ensure_config_exists()
     enabled_keywords = config["freelancehunt"]["keywords"]
     min_budget = config["freelancehunt"]["min_budget"]
@@ -850,12 +1026,11 @@ def parse_freelancehunt():
     for category_key, category_url in FH_CATEGORIES.items():
         try:
             category_name = FH_CATEGORY_NAMES.get(category_key, category_key)
-            print(f"   📂 Категория: {category_name}")
+            print(f"Категория: {category_name}")
             feed = feedparser.parse(category_url)
-            print(f"   📊 Найдено записей: {len(feed.entries)}")
             
             if len(feed.entries) == 0:
-                print(f"   ⚠️ RSS пустой! Проверь URL: {category_url}")
+                print(f"RSS пустой! Проверь URL: {category_url}")
                 continue
             
             count_in_category = 0
@@ -865,25 +1040,19 @@ def parse_freelancehunt():
                 link = getattr(entry, "link", "")
                 summary = getattr(entry, "summary", "")
                 project_id = link or title
-                
-                print(f"      📌 {title[:40]}...")
 
                 if project_id in fh_sent_projects:
-                    print(f"      ⏭️ Уже отправлен")
                     continue
 
                 text_for_filter = f"{title} {summary}"
                 budget, currency = extract_budget_and_currency(text_for_filter)
 
                 if min_budget and budget is not None and budget < min_budget:
-                    print(f"      ⏭️ Бюджет {budget} < {min_budget}")
                     continue
 
                 if enabled_keywords and not matches_keywords(text_for_filter, enabled_keywords):
-                    print(f"      ⏭️ Нет ключевых слов")
                     continue
 
-                print(f"      ✅ ОТПРАВЛЯЮ!")
                 count_in_category += 1
                 total_in_category += 1
                 
@@ -918,99 +1087,12 @@ def parse_freelancehunt():
             
         except Exception as e:
             log_error("freelancehunt", str(e)[:30])
-            print(f"   ❌ Ошибка {category_name}: {e}")
+            print(f"Ошибка {category_name}: {e}")
     
     check_stats["freelancehunt"]["last_count"] = total_in_category
 
-
-def parse_kabanchik():
-    print(f"🔍 Начинаю парсинг Kabanchik...")
-    config = ensure_config_exists()
-    total_in_category = 0
-
-    for url in KABANCHIK_URLS:
-        try:
-            print(f"   📂 URL: {url}")
-            response = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
-            
-            if response.status_code != 200:
-                print(f"   ⚠️ Ошибка {response.status_code}")
-                continue
-                
-            print(f"   ✅ Статус 200, парсим...")
-            soup = BeautifulSoup(response.text, "html.parser")
-            
-            count_in_category = 0
-            
-            if "ai-poslugi" in url:
-                category = "AI услуги"
-            elif "dyzayn" in url:
-                category = "Дизайн"
-            elif "foto-i-video-posluhy" in url:
-                category = "Фото и видео услуги"
-            else:
-                category = "Без категории"
-
-            for a in soup.find_all("a", href=True):
-                href = a["href"]
-                title = a.get_text(" ", strip=True)
-
-                if not title or len(title) < 5:
-                    continue
-
-                if "task" not in href and "project" not in href:
-                    continue
-
-                full_link = href if href.startswith("http") else f"https://kabanchik.ua{href}"
-
-                if full_link in kabanchik_sent_tasks:
-                    continue
-
-                text_for_filter = title.lower()
-                if config["freelancehunt"]["keywords"] and not matches_keywords(text_for_filter, config["freelancehunt"]["keywords"]):
-                    continue
-
-                kabanchik_sent_tasks.add(full_link)
-                stats["orders_found"] += 1
-                stats["kabanchik"] += 1
-                count_in_category += 1
-                total_in_category += 1
-
-                pending_orders[full_link] = {
-                    "title": title,
-                    "description": "Описание на сайте Kabanchik",
-                    "category": category,
-                    "link": full_link
-                }
-
-                message_text = format_kabanchik_message(
-                    title, category, "Описание на сайте", None, ""
-                )
-
-                # Для Kabanchik — только кнопка "Открыть" (без отклика)
-                keyboard = {
-                    "inline_keyboard": [
-                        [
-                            {"text": "🔗 Открыть", "url": full_link}
-                        ]
-                    ]
-                }
-                send_telegram_message(message_text, keyboard)
-            
-            if 'category' in locals():
-                update_check_stats("kabanchik", category, count_in_category)
-            else:
-                update_check_stats("kabanchik", "Неизвестно", count_in_category)
-            
-        except Exception as e:
-            log_error("kabanchik", str(e)[:30])
-            print(f"   ❌ Ошибка: {e}")
-    
-    check_stats["kabanchik"]["last_count"] = total_in_category
-
-
 def parse_weblancer():
-    print(f"🔍 Начинаю парсинг Weblancer...")
+    print("Начинаю парсинг Weblancer...")
     config = ensure_config_exists()
     enabled_keywords = config["freelancehunt"]["keywords"]
     min_budget = config["freelancehunt"]["min_budget"]
@@ -1020,13 +1102,11 @@ def parse_weblancer():
         for keyword in WEBLANCER_KEYWORDS[:10]:
             try:
                 search_url = f"{WEBLANCER_URL}?q={keyword.replace(' ', '+')}"
-                print(f"   📂 Поиск: {keyword}")
                 response = requests.get(search_url, timeout=30, headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
                 })
                 
                 if response.status_code != 200:
-                    print(f"   ⚠️ Ошибка {response.status_code}")
                     continue
                 
                 soup = BeautifulSoup(response.text, "html.parser")
@@ -1090,7 +1170,6 @@ def parse_weblancer():
                             title, description, budget_text, link
                         )
                         
-                        # Для Weblancer — только кнопка "Открыть"
                         keyboard = {
                             "inline_keyboard": [
                                 [
@@ -1104,19 +1183,18 @@ def parse_weblancer():
                         continue
                 
                 update_check_stats("weblancer", keyword, count_in_keyword)
-                print(f"   📊 По ключевому слову '{keyword}' найдено: {count_in_keyword} заказов")
+                print(f"По ключевому слову '{keyword}' найдено: {count_in_keyword} заказов")
                         
             except Exception as e:
-                print(f"   ⚠️ Ошибка поиска по ключевому слову {keyword}: {e}")
+                print(f"Ошибка поиска по ключевому слову {keyword}: {e}")
                 continue
                 
     except Exception as e:
         log_error("weblancer", str(e)[:30])
-        print(f"   ❌ Ошибка Weblancer: {e}")
+        print(f"Ошибка Weblancer: {e}")
     
     check_stats["weblancer"]["last_count"] = total_in_keyword
-    print(f"📊 Weblancer: всего найдено {total_in_keyword} заказов")
-
+    print(f"Weblancer: всего найдено {total_in_keyword} заказов")
 
 def handle_updates():
     global waiting_for_template_input, template_input_type
@@ -1130,7 +1208,6 @@ def handle_updates():
             )
 
             if r.status_code != 200:
-                print(f"DEBUG: Ошибка getUpdates: {r.status_code}")
                 time.sleep(5)
                 continue
 
@@ -1218,7 +1295,6 @@ def handle_updates():
                     message_id = cb["message"]["message_id"]
                     config = ensure_config_exists()
 
-                    # 🔥 Обработка кнопки "Откликнуться"
                     if data.startswith("bid_"):
                         short_id = data.replace("bid_", "")
                         project_id = None
@@ -1230,7 +1306,6 @@ def handle_updates():
                         if project_id and project_id in pending_orders:
                             order = pending_orders[project_id]
                             
-                            # 🔥 Проверяем, что это Freelancehunt
                             if "freelancehunt.com" not in order.get("link", ""):
                                 send_telegram_message(
                                     "❌ Автоотклик доступен ТОЛЬКО для заказов с Freelancehunt.\n"
@@ -1281,7 +1356,6 @@ def handle_updates():
                                 "show_alert": True
                             })
 
-                    # Отправка отклика
                     elif data.startswith("send_"):
                         short_id = data.replace("send_", "")
                         project_id = None
@@ -1394,7 +1468,6 @@ def handle_updates():
                             "show_alert": False
                         })
 
-                    # Остальные обработчики (настройки, меню и т.д.)
                     elif data == "open_template":
                         send_telegram_message(
                             "📝 <b>НАСТРОЙКА ШАБЛОНА ОТКЛИКА</b>\n\n"
@@ -1535,10 +1608,10 @@ def handle_updates():
                             text += f"{'✅' if enabled else '❌'} {cat}\n"
                         send_telegram_message(text, create_settings_keyboard())
 
-                    elif data == "show_kb_categories":
-                        text = "📁 <b>Kabanchik категории:</b>\n\n"
-                        for cat, enabled in config["kabanchik"]["categories"].items():
-                            text += f"{'✅' if enabled else '❌'} {cat}\n"
+                    elif data == "show_kb_keywords":
+                        text = "📁 <b>Kabanchik ключевые слова:</b>\n\n"
+                        keywords = config.get("kabanchik", {}).get("keywords", KABANCHIK_KEYWORDS)
+                        text += ", ".join(keywords)
                         send_telegram_message(text, create_settings_keyboard())
 
                     elif data.startswith("budget_"):
@@ -1604,36 +1677,32 @@ def handle_updates():
                         })
 
         except Exception as e:
-            print(f"DEBUG: Ошибка в handle_updates: {e}")
+            print(f"Ошибка в handle_updates: {e}")
             time.sleep(5)
-
 
 def monitor_freelancehunt():
     while True:
         try:
             parse_freelancehunt()
         except Exception as e:
-            print(f"DEBUG: monitor_freelancehunt error: {e}")
+            print(f"monitor_freelancehunt error: {e}")
         time.sleep(FH_INTERVAL)
-
 
 def monitor_kabanchik():
     while True:
         try:
-            parse_kabanchik()
+            parse_kabanchik_with_auth()
         except Exception as e:
-            print(f"DEBUG: monitor_kabanchik error: {e}")
+            print(f"monitor_kabanchik error: {e}")
         time.sleep(KABANCHIK_INTERVAL)
-
 
 def monitor_weblancer():
     while True:
         try:
             parse_weblancer()
         except Exception as e:
-            print(f"DEBUG: monitor_weblancer error: {e}")
+            print(f"monitor_weblancer error: {e}")
         time.sleep(WEBLANCER_INTERVAL)
-
 
 def main():
     try:
@@ -1642,6 +1711,9 @@ def main():
         if not BOT_TOKEN or not CHAT_ID:
             print("❌ BOT_TOKEN или CHAT_ID не заданы!")
             sys.exit(1)
+        
+        if not KABANCHIK_EMAIL or not KABANCHIK_PASSWORD:
+            print("⚠️ KABANCHIK_EMAIL или KABANCHIK_PASSWORD не заданы!")
         
         try:
             requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook", timeout=5)
@@ -1655,9 +1727,20 @@ def main():
             print("⚠️ GEMINI_API_KEY не задан!")
 
         if FH_API_TOKEN:
-            print("✅ FH_API_TOKEN найден! (автоотклик работает)")
+            print("✅ FH_API_TOKEN найден!")
         else:
-            print("⚠️ FH_API_TOKEN не задан! (автоотклик НЕ работает)")
+            print("⚠️ FH_API_TOKEN не задан!")
+
+        if KABANCHIK_EMAIL and KABANCHIK_PASSWORD:
+            print("✅ KABANCHIK_EMAIL и KABANCHIK_PASSWORD найдены!")
+            
+            if setup_kabanchik_driver():
+                if login_to_kabanchik():
+                    print("✅ Авторизация на Kabanchik выполнена!")
+                else:
+                    print("❌ Не удалось авторизоваться на Kabanchik")
+        else:
+            print("⚠️ Авторизация на Kabanchik НЕ настроена!")
 
         ensure_config_exists()
         setup_bot_menu()
@@ -1681,6 +1764,8 @@ def main():
             
     except KeyboardInterrupt:
         print("🛑 Бот остановлен")
+        if kabanchik_driver:
+            kabanchik_driver.quit()
         sys.exit(0)
     except Exception as e:
         print(f"❌ КРИТИЧЕСКАЯ ОШИБКА: {e}")
@@ -1688,8 +1773,9 @@ def main():
             send_telegram_message(f"❌ Бот упал с ошибкой:\n{str(e)[:300]}")
         except:
             pass
+        if kabanchik_driver:
+            kabanchik_driver.quit()
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()
